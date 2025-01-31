@@ -1,0 +1,23 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+# default_stages:
+#   - pre-commit # Run locally
+#   - manual # Run in CI
+
+repos:
+- repo: local
+  hooks:
+  - id: mypy-local
+    name: Run mypy for local Python installation
+    entry: bash format/mypy.sh 0 local
+    language: python
+    types: [python]
+    additional_dependencies: &mypy_deps [mypy==1.14.1, types-setuptools, types-PyYAML, types-requests]
+    pass_filenames: false
+    # stages: [pre-commit] # Don't run in CI
+  - id: suggestion
+    name: Suggestion
+    entry: bash -c 'echo "To bypass pre-commit hooks, add --no-verify to git commit."'
+    language: system
+    verbose: true
+    pass_filenames: false
