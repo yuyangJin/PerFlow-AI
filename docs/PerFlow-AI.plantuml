@@ -1,0 +1,207 @@
+@startuml
+
+namespace userside{
+    interface FlowNode{
+        +id: int
+
+        +output()
+        +input()
+        +run()
+    }
+    class FlowGraph{
+        +nodes: 
+        +edges:
+        
+        +run()
+
+    }
+    FlowNode --* FlowGraph 
+
+    class TraceReader{
+        +
+    }
+
+    class TraceAnalyzer{
+
+    }
+
+    class TraceVisualizer{}
+
+    TraceReader .left.|> FlowNode
+    TraceAnalyzer .left.|> FlowNode
+    TraceVisualizer .right.|> FlowNode
+
+
+
+
+    class TorchProfilerTraceReader{
+
+    }
+
+    TorchProfilerTraceReader -up-|> TraceReader
+
+
+    class Simulator{}
+
+    Simulator ..|> FlowNode
+
+    class OperatorSimulator{}
+    class CommSimulator{}
+    class DataParallelSimulator{}
+    class TensorParallelSimulator{}
+
+    Enum PipeType{
+        GPipe
+        PipeDream
+        Interleaved1F1B
+        ZeroBubble
+        Customized
+    }
+
+    Enum PipePartitionType{
+        Balanced
+        Customized
+    }
+
+
+
+    class PipeConfig{
+        - edges: list<pair<src, dst>>
+
+        + getEdges(file_name)
+    }
+
+    class PipePartitionConfig{
+        - plan: dict<stage_id, nlayers>
+
+        + getPlan(file_name)
+    }
+
+    class PipelineParallelSimulator{
+        - m_pipe_type: PipeType
+        - m_pipe_config: PipeConfig
+
+        - m_pipe_partition: PipePartitionType
+        - m_pipe_partition_config: PipePartitionConfig
+
+
+        + __init__()
+        + generateTrace()
+    }
+
+    PipeType -down- PipelineParallelSimulator
+    PipeConfig -down-* PipelineParallelSimulator
+
+    PipePartitionType -down- PipelineParallelSimulator
+    PipePartitionConfig -down-* PipelineParallelSimulator
+
+
+
+    OperatorSimulator -left-|> Simulator
+    CommSimulator -right-|> Simulator
+    DataParallelSimulator -down-|> Simulator
+    TensorParallelSimulator -down-|> Simulator
+    PipelineParallelSimulator -down-|> Simulator
+
+}
+
+namespace systemside{
+    enum EventType{
+        Oprt
+        Comm
+        Fwd
+        Bwd
+        Wgt
+    }
+
+    class Event{
+        - m_id: int
+        - m_type: EventType
+        - m_name: string
+        - m_timestamp: int
+        - m_duration: int
+
+        + getId()
+        + setDuration()
+        + getDuration()
+        + getTimestamp()
+        + getType()
+        + getName()
+    }
+
+    class OperatorEvent{}
+
+    class CommEvent{}
+
+    class FwdBwdEvent{
+        - stage_id: int 
+        - microbatch_id: int
+        - chunk_id: int
+
+        + getStageId()
+        + getMicrobatchId()
+        + getChunkId()
+    }
+
+    OperatorEvent .left.|> Event
+    CommEvent .down.|> Event
+    FwdBwdEvent .up.|> Event
+
+    class Trace{
+        - m_nstages: int
+        - m_events: list<Event>
+
+        + getNStages()
+        + getEvents()
+        + getEvent(int stage_id)
+
+    }
+
+    Trace -right- FwdBwdEvent
+
+
+    Trace -- TraceReader
+    Trace - TraceVisualizer
+    Trace - TraceAnalyzer
+
+    namespace pipesim{
+
+        '/ PPGraph: FwdBwdEvent -> Node, pipeline streams -> Graph /'
+        class PPGraph{
+            - m_nstages: int
+            - m_nmicrobatches: int
+            - m_nchunks: int
+            - m_nnodes: int
+            - m_nodes: dict<int, FwdBwdEvent>
+
+            + getNodeId()
+            + addNodes()
+            + addEdge()
+            + generateNodes()
+        }
+
+        class GPipeGraph{
+            + buildGraph()
+        }
+
+        class PipeDreamGraph{
+            + buildGraph()
+        }
+
+        class Interleaved1F1BGraph{
+            + buildGraph()
+        }
+        
+        GPipeGraph -down-|> PPGraph
+        PipeDreamGraph -down-|> PPGraph
+        Interleaved1F1BGraph -down-|> PPGraph
+
+
+        PPGraph -down- Trace
+
+    }
+}
+
+PipelineParallelSimulator -left-|> systemside.pipesim.PPGraph
+
+@enduml
