@@ -7,7 +7,7 @@ from perflowai.core.trace import Trace
 '''
 @class PPGraph
 A PPGraph is a pipeline trace.
-An event is a node in the PPGraph, and it must be chunk.
+An event is a node in the PPGraph, and it must be FwdBwdEvent.
 '''
 class PPGraph(Trace):
     def __init__(self, nstages, nmicrobatches, nchunks, n):

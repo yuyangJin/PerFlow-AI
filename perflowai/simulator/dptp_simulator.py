@@ -2,7 +2,7 @@
 @package perflowai.simulator.dptp_simulator
 '''
 
-from .__init__ import Simulator
+from .simulator import Simulator
 
 '''
 @class DPSimulator

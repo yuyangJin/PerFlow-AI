@@ -1,5 +1,5 @@
 '''
-@package perflowai.reader
+@module perflowai.reader
 '''
 
 from .torchprofiler_reader import TorchProfilerTraceReader

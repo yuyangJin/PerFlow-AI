@@ -8,7 +8,7 @@ class ZeroBubbleGraph(PPGraph):
     def __init__(self, nstages, nmicrobatches, nchunks):
         super().__init__(nstages, nmicrobatches, nchunks)
     
-    def buid_graph(self):
+    def build_graph(self):
         '''
         Build the graph for ZeroBubble
         To be implemented

@@ -2,6 +2,8 @@
 @package perflowai.simulator.pp_simulator
 '''
 
+from .simulator import Simulator
+
 from enum import Enum
 
 class PipeType(Enum):
