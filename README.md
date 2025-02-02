@@ -6,7 +6,7 @@ PerFlow-AI is a programmable performance analysis, modeling, prediction tool for
 pip install .
 ```
 
-## Teset
+## Test
 ```
 pytest tests/
 ```
