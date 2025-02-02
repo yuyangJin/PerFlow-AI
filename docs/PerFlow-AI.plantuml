@@ -1,207 +1,247 @@
 @startuml
 
+
+namespace systemside{
+
+    namespace core{
+        enum EventType{
+            Oprt
+            Comm
+            Fwd
+            Bwd
+            Wgt
+        }
+
+        class Event{
+            - m_id: int
+            - m_type: EventType
+            - m_name: string
+            - m_timestamp: int
+            - m_duration: int
+
+            + getId()
+            + setDuration()
+            + getDuration()
+            + getTimestamp()
+            + getType()
+            + getName()
+        }
+
+        class OprtEvent{}
+
+        class CommEvent{}
+
+        class FwdBwdEvent{
+            - stage_id: int 
+            - microbatch_id: int
+            - chunk_id: int
+
+            + getStageId()
+            + getMicrobatchId()
+            + getChunkId()
+        }
+
+        OprtEvent .up.|> Event
+        CommEvent .up.|> Event
+        FwdBwdEvent .left.|> Event
+
+        class Trace{
+            - m_nstages: int
+            - m_events: list<Event>
+
+            + getNStages()
+            + getEvents()
+            + getEvent(int stage_id)
+
+        }
+
+        Trace -down- Event
+    }
+
+
+
+    namespace pipeline{
+
+        namespace pipeline_parallel{
+            '/ PPGraph: FwdBwdEvent -> Node, pipeline streams -> Graph /'
+            class PPGraph{
+                - m_nstages: int
+                - m_nmicrobatches: int
+                - m_nchunks: int
+                - m_nnodes: int
+                - m_nodes: dict<int, FwdBwdEvent>
+
+                + getNodeId()
+                + addNodes()
+                + addEdge()
+                + generateNodes()
+            }
+
+            class GPipeGraph{
+                + buildGraph()
+            }
+
+            class PipeDreamGraph{
+                + buildGraph()
+            }
+
+            class Interleaved1F1BGraph{
+                + buildGraph()
+            }
+            
+            GPipeGraph -down-|> PPGraph
+            PipeDreamGraph -down-|> PPGraph
+            Interleaved1F1BGraph -down-|> PPGraph
+
+
+            PPGraph -down-|> Trace
+            PPGraph -down- FwdBwdEvent
+        }
+
+        class DPGraph{}
+        class TPGraph{}
+        class TPDPGraph{}
+
+        DPGraph -down-|> Trace
+        TPGraph -down-|> Trace
+        TPDPGraph -down-|> Trace
+
+    }
+}
+
+
+
+
 namespace userside{
-    interface FlowNode{
-        +id: int
+    namespace flow{
+        interface FlowNode{
+            +id: int
 
-        +output()
-        +input()
-        +run()
-    }
-    class FlowGraph{
-        +nodes: 
-        +edges:
-        
-        +run()
+            +output()
+            +input()
+            +run()
+        }
+        class FlowGraph{
+            +nodes: 
+            +edges:
+            
+            +run()
 
-    }
-    FlowNode --* FlowGraph 
-
-    class TraceReader{
-        +
+        }
+        FlowNode --* FlowGraph 
     }
 
-    class TraceAnalyzer{
+    namespace reader {
+        class TraceReader{
+            - m_trace: Trace
 
+            + __init__()
+            + readTrace(file_name)
+            + getTrace()
+        }   
+    
+         class TorchProfilerTraceReader{
+
+        }
+
+        TorchProfilerTraceReader -up-|> TraceReader
     }
 
-    class TraceVisualizer{}
+    namespace analyzer{
+        class TraceAnalyzer{
+            - m_trace: Trace
+
+            + __init__()
+            + analyze()
+        }
+    }
+
+    namespace visualizer{
+        class TraceVisualizer{}
+    }
 
     TraceReader .left.|> FlowNode
     TraceAnalyzer .left.|> FlowNode
-    TraceVisualizer .right.|> FlowNode
+    TraceVisualizer .left.|> FlowNode
+
+    Trace -right- TraceReader
+    Trace -right- TraceVisualizer
+    Trace -right- TraceAnalyzer
 
 
 
+    namespace simulator {
+        class Simulator{}
 
-    class TorchProfilerTraceReader{
+        Simulator ..|> FlowNode
+
+        class OprtSimulator{}
+        class CommSimulator{}
+        class DPSimulator{}
+        class TPSimulator{}
+
+        Enum PipeType{
+            GPipe
+            PipeDream
+            Interleaved1F1B
+            ZeroBubble
+            Customized
+        }
+
+        Enum PipePartitionType{
+            Balanced
+            Customized
+        }
+
+
+
+        class PipeConfig{
+            - edges: list<pair<src, dst>>
+
+            + getEdges(file_name)
+        }
+
+        class PipePartitionConfig{
+            - plan: dict<stage_id, nlayers>
+
+            + getPlan(file_name)
+        }
+
+        class PPSimulator{
+            - m_pipe_type: PipeType
+            - m_pipe_config: PipeConfig
+
+            - m_pipe_partition: PipePartitionType
+            - m_pipe_partition_config: PipePartitionConfig
+
+
+            + __init__()
+            + generateTrace()
+        }
+
+        PipeType -down- PPSimulator
+        PipeConfig -down-* PPSimulator
+
+        PipePartitionType -down- PPSimulator
+        PipePartitionConfig -down-* PPSimulator
+
+
+        OprtSimulator -left-|> Simulator
+        CommSimulator -right-|> Simulator
+        DPSimulator -down-|> Simulator
+        TPSimulator -down-|> Simulator
+        PPSimulator -down-|> Simulator
+
+        TPSimulator -right-* TPGraph
+        DPSimulator -right-* DPGraph
+        TPDPSimulator -left-* TPDPGraph
 
     }
-
-    TorchProfilerTraceReader -up-|> TraceReader
-
-
-    class Simulator{}
-
-    Simulator ..|> FlowNode
-
-    class OperatorSimulator{}
-    class CommSimulator{}
-    class DataParallelSimulator{}
-    class TensorParallelSimulator{}
-
-    Enum PipeType{
-        GPipe
-        PipeDream
-        Interleaved1F1B
-        ZeroBubble
-        Customized
-    }
-
-    Enum PipePartitionType{
-        Balanced
-        Customized
-    }
-
-
-
-    class PipeConfig{
-        - edges: list<pair<src, dst>>
-
-        + getEdges(file_name)
-    }
-
-    class PipePartitionConfig{
-        - plan: dict<stage_id, nlayers>
-
-        + getPlan(file_name)
-    }
-
-    class PipelineParallelSimulator{
-        - m_pipe_type: PipeType
-        - m_pipe_config: PipeConfig
-
-        - m_pipe_partition: PipePartitionType
-        - m_pipe_partition_config: PipePartitionConfig
-
-
-        + __init__()
-        + generateTrace()
-    }
-
-    PipeType -down- PipelineParallelSimulator
-    PipeConfig -down-* PipelineParallelSimulator
-
-    PipePartitionType -down- PipelineParallelSimulator
-    PipePartitionConfig -down-* PipelineParallelSimulator
-
-
-
-    OperatorSimulator -left-|> Simulator
-    CommSimulator -right-|> Simulator
-    DataParallelSimulator -down-|> Simulator
-    TensorParallelSimulator -down-|> Simulator
-    PipelineParallelSimulator -down-|> Simulator
 
 }
 
-namespace systemside{
-    enum EventType{
-        Oprt
-        Comm
-        Fwd
-        Bwd
-        Wgt
-    }
-
-    class Event{
-        - m_id: int
-        - m_type: EventType
-        - m_name: string
-        - m_timestamp: int
-        - m_duration: int
-
-        + getId()
-        + setDuration()
-        + getDuration()
-        + getTimestamp()
-        + getType()
-        + getName()
-    }
-
-    class OperatorEvent{}
-
-    class CommEvent{}
-
-    class FwdBwdEvent{
-        - stage_id: int 
-        - microbatch_id: int
-        - chunk_id: int
-
-        + getStageId()
-        + getMicrobatchId()
-        + getChunkId()
-    }
-
-    OperatorEvent .left.|> Event
-    CommEvent .down.|> Event
-    FwdBwdEvent .up.|> Event
-
-    class Trace{
-        - m_nstages: int
-        - m_events: list<Event>
-
-        + getNStages()
-        + getEvents()
-        + getEvent(int stage_id)
-
-    }
-
-    Trace -right- FwdBwdEvent
+PPSimulator -left-* PPGraph
 
 
-    Trace -- TraceReader
-    Trace - TraceVisualizer
-    Trace - TraceAnalyzer
-
-    namespace pipesim{
-
-        '/ PPGraph: FwdBwdEvent -> Node, pipeline streams -> Graph /'
-        class PPGraph{
-            - m_nstages: int
-            - m_nmicrobatches: int
-            - m_nchunks: int
-            - m_nnodes: int
-            - m_nodes: dict<int, FwdBwdEvent>
-
-            + getNodeId()
-            + addNodes()
-            + addEdge()
-            + generateNodes()
-        }
-
-        class GPipeGraph{
-            + buildGraph()
-        }
-
-        class PipeDreamGraph{
-            + buildGraph()
-        }
-
-        class Interleaved1F1BGraph{
-            + buildGraph()
-        }
-        
-        GPipeGraph -down-|> PPGraph
-        PipeDreamGraph -down-|> PPGraph
-        Interleaved1F1BGraph -down-|> PPGraph
-
-
-        PPGraph -down- Trace
-
-    }
-}
-
-PipelineParallelSimulator -left-|> systemside.pipesim.PPGraph
 
 @enduml

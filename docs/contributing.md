@@ -49,7 +49,7 @@ Only specific types of PRs will be reviewed. The PR title is prefixed appropriat
 
 - [Perf] for performance optimization.
 
-- [Refactor] for code modifications that do not fix bug or add new features/ 
+- [Refactor] for code modifications that do not fix bug or add new features.
 
 - [Style] for format modification.
 
