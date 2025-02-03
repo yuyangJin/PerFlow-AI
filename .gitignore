@@ -1,6 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
 # pip install
 build/
-perflowai.egg-info/
+dist/
+eggs/
+sdist/
+*.egg-info/
 
 # pytest
 .pytest_cache/
