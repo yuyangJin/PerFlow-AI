@@ -7,7 +7,9 @@
 A FlowNode is a node in a flow graph.
 '''
 
-class FlowNode:
+from abc import ABC, abstractmethod
+
+class FlowNode(ABC):
     def __init__(self, name, id, inputs, outputs):
         self.m_name = name
         self.m_id = id
@@ -17,8 +19,10 @@ class FlowNode:
     def __str__(self):
         return f"FlowNode({self.m_name})"
 
-    def run(self, *args, **kwargs):
-        return self.func(*args, **kwargs)
+    # @abstractmethod
+    def run(self):
+        print('FlowNode runs virtially.')
+        pass
 
 '''
 @class FlowGraph
@@ -41,6 +45,12 @@ class FlowGraph:
         '''
         self.m_edges = dict()
 
+    def get_node_by_id(self, id):
+        return self.m_nodes[id]
+    
+    def get_next_nodelist_by_id(self, id):
+        return self.m_edges[id]
+
     def add_node(self, node):
         self.m_nodes[node.m_id] = node
     
@@ -54,8 +64,25 @@ class FlowGraph:
     one node is the input of another node 
     '''
     def check(self):
+        '''
+        Not implemented yet
+        '''
         pass
 
     def run(self, *args, **kwargs):
+        # visited = set()
+
+        # def traverse(node_id):
+        #     if node_id in visited:
+        #     return
+        #     visited.add(node_id)
+        #     node = self.get_node_by_id(node_id)
+        #     print(f"Visiting node: {node}")
+        #     for next_node_id in self.get_next_nodelist_by_id(node_id):
+        #     traverse(next_node_id)
+
+        # for node_id in self.m_nodes:
+        #     traverse(node_id)
+
         for node in self.nodes:
             node.run(*args, **kwargs)
