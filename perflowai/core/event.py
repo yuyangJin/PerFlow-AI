@@ -17,6 +17,8 @@ An event is a basic unit in the trace.
 '''
 class Event:
     def __init__(self, id, type, name, timestamp, duration):
+        if not isinstance(type, EventType):
+            raise ValueError("Type must be an instance of EventType")
         self.m_id = id
         self.m_type = type
         self.m_name = name
@@ -24,34 +26,24 @@ class Event:
         self.m_duration = duration
     
     def get_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_id
     
     def get_name(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_name
 
     def get_type(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_type
 
     def get_timestamp(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_timestamp
 
     def get_duration(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_duration
+
+    def set_duration(self, duration):
+        if not isinstance(duration, (int, float)):
+            raise TypeError("Duration must be a number")
+        self.m_duration = duration
 
 
 '''
