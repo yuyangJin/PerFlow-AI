@@ -88,25 +88,18 @@ class FwdBwdEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
                 stage_id, microbatch_id, chunk_id):
         super().__init__(id, type, name, timestamp, duration)
+        if not (type == EventType.FWD or type == EventType.BWD):
+            raise ValueError("FwdBwdEvent's Type must be FWD or BWD")
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
 
     def get_stage_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_stage_id
 
     def get_microbatch_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_microbatch_id
 
     def get_chunk_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_chunk_id
     
