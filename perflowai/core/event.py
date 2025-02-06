@@ -17,6 +17,8 @@ An event is a basic unit in the trace.
 '''
 class Event:
     def __init__(self, id, type, name, timestamp, duration):
+        if not isinstance(type, EventType):
+            raise ValueError("Type must be an instance of EventType")
         self.m_id = id
         self.m_type = type
         self.m_name = name
@@ -24,34 +26,24 @@ class Event:
         self.m_duration = duration
     
     def get_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_id
     
     def get_name(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_name
 
     def get_type(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_type
 
     def get_timestamp(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_timestamp
 
     def get_duration(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_duration
+
+    def set_duration(self, duration):
+        if not isinstance(duration, (int, float)):
+            raise TypeError("Duration must be a number")
+        self.m_duration = duration
 
 
 '''
@@ -96,25 +88,18 @@ class FwdBwdEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
                 stage_id, microbatch_id, chunk_id):
         super().__init__(id, type, name, timestamp, duration)
+        if not (type == EventType.FWD or type == EventType.BWD):
+            raise ValueError("FwdBwdEvent's Type must be FWD or BWD")
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
 
     def get_stage_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_stage_id
 
     def get_microbatch_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_microbatch_id
 
     def get_chunk_id(self):
-        '''
-        To be implemented
-        '''
-        pass
+        return self.m_chunk_id
     
