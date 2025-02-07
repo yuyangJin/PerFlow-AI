@@ -45,6 +45,14 @@ class Event:
             raise TypeError("Duration must be a number")
         self.m_duration = duration
 
+    def get_info_str(self):
+        return '<Event ' + str(self.m_id) + ':' + self.m_name + '>'
+
+    def __str__(self):
+        return self.get_info_str()
+
+    def __repr__(self):
+        return self.get_info_str()
 
 '''
 @class OprtEvent
