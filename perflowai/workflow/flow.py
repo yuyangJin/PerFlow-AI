@@ -19,6 +19,12 @@ class FlowNode(ABC):
     def __str__(self):
         return f"FlowNode({self.m_name})"
 
+    def get_inputs(self):
+        return self.m_inputs
+
+    def get_outputs(self):
+        return self.m_outputs
+
     # @abstractmethod
     def run(self):
         print('FlowNode runs virtially.')
