@@ -1,7 +1,9 @@
 '''
 
 '''
-from perflowai.workflow.flow import FlowNode
+from ..workflow.flow import FlowNode
+from ..core.event import Event, EventType
+from ..core.trace import Trace
 
 from typing import List
 
@@ -10,15 +12,16 @@ from typing import List
 A trace reader.
 '''
 class TraceReader(FlowNode):
-    def __init__(self, trace_path: str):
-        self.trace_path = trace_path
+    def __init__(self, trace_reader_str, trace_path: str):
+        super().__init__(trace_reader_str, 0, [], [])
+        self.m_trace_path = trace_path
 
-    def read(self) -> List[FlowNode]:
+    def read(self, event_types: List[EventType]) -> Trace:
         '''
         To be implemented.
         '''
         pass
-        return []
+        return None
 
     def write(self, flows: List[FlowNode]):
         '''
