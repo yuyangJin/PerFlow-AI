@@ -97,12 +97,12 @@ class TraceVisiualizer(FlowNode):
             G = c[1]
             B = c[2]  
 
-            # 计算变换后的RGB值  
+            # Calculate the transformed RGB values 
             R_prime = int(R + (255 - R) * (lightness / 100))  
             G_prime = int(G + (255 - G) * (lightness / 100))  
             B_prime = int(B + (255 - B) * (lightness / 100))  
 
-            # 确保RGB值在0到255之间  
+            # Ensure that the RGB values are within the range of 0 to 255 
             R_prime = max(0, min(255, R_prime))  
             G_prime = max(0, min(255, G_prime))  
             B_prime = max(0, min(255, B_prime))  
