@@ -50,14 +50,25 @@ class TraceVisiualizer(FlowNode):
         #   |                  svg Title                   |  title_height
         #   ------------------------------------------------
         
-        ndevs = self.trace.m_ndevs
-
         title_width = TITLE_WIDTH
 
-        first_time = min(min([e.m_timestamp for e in dev_evs]) for dev_evs in self.trace.m_events.values())
-        last_time = max(max([e.m_timestamp + e.m_duration for e in dev_evs]) for dev_evs in self.trace.m_events.values())
-        max_chk = max(max([e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0 for e in dev_evs]) for dev_evs in self.trace.m_events.values())
-        data_width = (last_time - first_time + TIME_PER_UNIT - 1) // TIME_PER_UNIT + TAIL
+        ndevs = 0
+        devs = []
+        first_time = 9223372036854775807
+        last_time = 0
+        max_chk = 1
+        time_per_unit = TIME_PER_UNIT
+        for it, dev_evs in enumerate(self.trace.m_events.values()):
+            if len(dev_evs) != 0:
+                ndevs = ndevs + 1
+                devs.append(it)
+                for e in dev_evs:
+                    first_time = min(first_time, e.m_timestamp)
+                    last_time = max(last_time, e.m_timestamp + e.m_duration)
+                    max_chk = max(max_chk, e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0)
+                    time_per_unit = min(time_per_unit, (e.m_duration / (len(e.m_name) * FONT_SIZE * 0.3)))
+
+        data_width = (last_time - first_time + time_per_unit - 1) // time_per_unit + TAIL
         
         data_height = SPAN_HEIGHT * ndevs + BORDER_SIZE * (ndevs + 1)
 
@@ -141,16 +152,17 @@ class TraceVisiualizer(FlowNode):
             plot_line(start_y, start_x + width, start_y + 3*b, start_x + width - 3*b)
 
         def draw_device_title(oy, ox):
-            for i in range(ndevs):
-                h = i * SPAN_HEIGHT + (i + 1) * BORDER_SIZE
+            for it, i in enumerate(devs):
+                h = it * SPAN_HEIGHT + (it + 1) * BORDER_SIZE
                 plot_text(oy + h, ox + 6 * SCALE_FACTOR, "Device {}".format(i), "left")
         
         def draw_data(oy, ox):
-            for it, dev_events in self.trace.m_events.items():
+            for it, i in enumerate(devs):
                 h = it * SPAN_HEIGHT + (it + 1) * BORDER_SIZE
+                dev_events = self.trace.get_events(i)
                 for e in dev_events:
-                    start = BORDER_SIZE + (e.m_timestamp - first_time) // TIME_PER_UNIT
-                    duration = e.m_duration // TIME_PER_UNIT
+                    start = BORDER_SIZE + (e.m_timestamp - first_time) // time_per_unit
+                    duration = e.m_duration // time_per_unit
                     center = start + duration // 2
                     if e.m_type not in exist_type:
                         exist_type.append(e.m_type)
