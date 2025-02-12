@@ -4,6 +4,8 @@
 
 from enum import Enum
 
+NoneTimestamp = -1
+
 class EventType(Enum):
     OPRT = 0
     COMM = 1
@@ -36,6 +38,11 @@ class Event:
 
     def get_timestamp(self):
         return self.m_timestamp
+
+    def set_timestamp(self, timestamp):
+        if not isinstance(timestamp, (int, float)):
+            raise TypeError("Timestamp must be a number")
+        self.m_timestamp = timestamp
 
     def get_duration(self):
         return self.m_duration
