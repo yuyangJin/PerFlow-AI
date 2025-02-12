@@ -19,6 +19,12 @@ class FlowNode(ABC):
     def __str__(self):
         return f"FlowNode({self.m_name})"
 
+    def set_inputs(self, inputs):
+        self.m_inputs = inputs
+
+    def set_outputs(self, outputs):
+        self.m_outputs = outputs
+
     def get_inputs(self):
         return self.m_inputs
 
