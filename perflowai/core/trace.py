@@ -26,3 +26,22 @@ class Trace:
     def get_ndevs(self):
         return self.m_ndevs
 
+    def output(self):
+        for i in range(self.m_ndevs):
+            print(self.m_events[i])
+
+class PPTrace(Trace):
+    def __init__(self, ndevs, nstages, nmicrobatches, nchunks):
+        super().__init__(ndevs)
+        self.m_nstages = nstages
+        self.m_nmicrobatches = nmicrobatches
+        self.m_nchunks = nchunks
+    
+    def get_nstages(self):
+        return self.m_nstages
+    
+    def get_nmicrobatches(self):
+        return self.m_nmicrobatches
+
+    def get_nchunks(self):
+        return self.m_nchunks
