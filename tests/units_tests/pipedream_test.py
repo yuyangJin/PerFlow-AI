@@ -7,7 +7,7 @@ from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
 from perflowai.parallel.pipeline_parallel.pipedream import PipeDreamGraph
 from perflowai.core.event import NoneTimestamp, EventType
 
-def test_GPipeGraph():
+def test_PipeDreamGraph():
 
     with pytest.raises(AssertionError):
         g = PipeDreamGraph(4, 10, 2, cost_config = PipeCostConfig(
