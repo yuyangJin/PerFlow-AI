@@ -63,10 +63,11 @@ class ZeroBubbleGraph(PPGraph):
                     #with above two rules, within the same chk, execute fwd(0, 0, chk) firstly, execute fwd(self.m_nstages - 1, self.m_nmicrobatches - 1, chk) lastly
                     
                     # inter-chunk dependence
-                    if chk != 0 and mb == 0: # wgtxfwd#1: when across a chunk, for each stage, should keep all mb in last chk completed. wgt(stage, , self.m_nmicrobatches - 1, chk-1) -> fwd(stage, 0, chk)
-                        src3_id = self.get_event_id(EventType.WGT, stage, self.m_nmicrobatches - 1, chk-1)
-                        dest3_id = self.get_event_id(EventType.FWD, stage, 0, chk)
-                        self.add_edge(src3_id, dest3_id)
+                    if chk != 0:
+                        if stage == 0:
+                            src3_id = self.get_event_id(EventType.FWD, self.m_nstages - 1, mb, chk - 1)
+                            dest3_id = self.get_event_id(EventType.FWD, 0, mb, chk)
+                            self.add_edge(src3_id, dest3_id)
                     
         # bwd
         for stage in range(self.m_nstages):
@@ -88,6 +89,13 @@ class ZeroBubbleGraph(PPGraph):
                         src3_id = self.get_event_id(EventType.FWD, self.m_nstages - 1, mb, chk)
                         dest3_id = self.get_event_id(EventType.BWD, self.m_nstages - 1, mb, chk)
                         self.add_edge(src3_id, dest3_id)
+
+                    # inter-chunk dependence
+                    if chk != 0 :
+                        if stage == self.m_nstages - 1:
+                            src3_id = self.get_event_id(EventType.BWD, 0, mb, chk - 1)
+                            dest3_id = self.get_event_id(EventType.BWD, stage, mb, chk)
+                            self.add_edge(src3_id, dest3_id)
 
         #wgt
         for stage in range(self.m_nstages):
