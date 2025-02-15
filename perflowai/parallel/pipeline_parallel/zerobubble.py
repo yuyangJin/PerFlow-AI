@@ -85,16 +85,16 @@ class ZeroBubbleGraph(PPGraph):
                     
                     #with above two rules, within the same chk, execute bwd(self.m_nstages - 1, 0, chk) firstly, execute bwd(0, self.m_nmicrobatches - 1, chk) lastly
                     
-                    if stage == self.m_nstages - 1: # fwdxbwd#1: describe the boundary between fwd and bwd, for each mb completing fwd before starting bwd. fwd(self.m_nstages - 1, mb, chk) -> bwd(self.m_nstages - 1, mb, chk)
-                        src3_id = self.get_event_id(EventType.FWD, self.m_nstages - 1, mb, chk)
-                        dest3_id = self.get_event_id(EventType.BWD, self.m_nstages - 1, mb, chk)
+                    if stage == self.m_nstages - 1 and chk == self.m_nchunks - 1: # fwdxbwd#1: describe the boundary between fwd and bwd, for each mb completing fwd before starting bwd. fwd(self.m_nstages - 1, mb, self.m_nchunks - 1) -> bwd(self.m_nstages - 1, mb, self.m_nchunks - 1)
+                        src3_id = self.get_event_id(EventType.FWD, self.m_nstages - 1, mb, self.m_nchunks - 1)
+                        dest3_id = self.get_event_id(EventType.BWD, self.m_nstages - 1, mb, self.m_nchunks - 1)
                         self.add_edge(src3_id, dest3_id)
 
                     # inter-chunk dependence
                     if chk != 0 :
                         if stage == self.m_nstages - 1:
-                            src3_id = self.get_event_id(EventType.BWD, 0, mb, chk - 1)
-                            dest3_id = self.get_event_id(EventType.BWD, stage, mb, chk)
+                            src3_id = self.get_event_id(EventType.BWD, 0, mb, chk)
+                            dest3_id = self.get_event_id(EventType.BWD, self.m_nstages - 1, mb, chk - 1)
                             self.add_edge(src3_id, dest3_id)
 
         #wgt
