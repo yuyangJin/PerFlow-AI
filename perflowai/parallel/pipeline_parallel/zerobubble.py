@@ -117,7 +117,7 @@ class ZeroBubbleGraph(PPGraph):
                         src2_id = self.get_event_id(EventType.BWD, stage, mb, chk)
                         dest2_id = self.get_event_id(EventType.WGT, stage, mb, chk)
                         self.add_edge(src2_id, dest2_id)
-
+                        
         elif self.schedule_type == ScheduleType.ZBV:
             if (self.m_nchunks & 1):
                 raise ValueError("Not support for ZBV - the number of chunks must be even!")
