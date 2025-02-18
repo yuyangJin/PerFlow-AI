@@ -1,5 +1,5 @@
 from .ppgraph import PPGraph
-from ...core.event import EventType
+from ...core.event import EventType, FwdBwdEvent, NoneTimestamp
 
 '''
 @class Interleaved1F1BGraph
@@ -36,6 +36,39 @@ class Interleaved1F1BGraph(PPGraph):
             mb = mbb_start + (minib_id - last_mbb_start_minib_id) % step 
             chk = (minib_id - last_mbb_start_minib_id) // step 
         return mb, chk
+
+    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0):
+        '''
+        Get event id
+        '''
+        event_id = self.get_event_id(event_type, stage_id, microbatch_id, chunk_id)
+        
+        __chunk_id = chunk_id
+        if event_type == EventType.BWD:
+            __chunk_id = self.m_nchunks - chunk_id - 1
+        '''
+        Get event name
+        '''
+        event_name = str(event_type) + '-' + str(microbatch_id) + '-' + str(__chunk_id)
+        
+        '''
+        Create a new fwd/bwd event
+        '''
+        fwdbwd_event = FwdBwdEvent(id = event_id, 
+                            type = event_type, 
+                            name=event_name, 
+                            timestamp = NoneTimestamp, 
+                            duration = duration, 
+                            stage_id = stage_id, 
+                            microbatch_id = microbatch_id, 
+                            chunk_id = __chunk_id)
+        
+        '''
+        Insert the created event into the node list
+        '''
+        self.m_nodes[event_id] = fwdbwd_event
+
+        return id
 
 
     '''
