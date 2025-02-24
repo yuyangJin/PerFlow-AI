@@ -72,6 +72,17 @@ class PPGraph(Trace):
     def get_event_types(self):
         return self.event_types
 
+    def get_event_name(self, event_type, microbatch_id, chunk_id):
+        if event_type == EventType.FWD:
+            event_type_str = 'F'
+        elif event_type == EventType.BWD:
+            event_type_str = 'B'
+        elif event_type == EventType.WGT:
+            event_type_str = 'W'
+        else:
+            raise TypeError("Event type must be FWD/BWD/WGT")
+        return event_type_str + ':' + str(microbatch_id) + '-' + str(chunk_id)
+
     def get_nstages(self):
         return self.m_nstages
 
@@ -90,14 +101,14 @@ class PPGraph(Trace):
         '''
         Get event name
         '''
-        event_name = str(event_type) + '-' + str(microbatch_id) + '-' + str(chunk_id)
+        event_name = self.get_event_name(event_type, microbatch_id, chunk_id)
         
         '''
         Create a new fwd/bwd event
         '''
         fwdbwd_event = FwdBwdEvent(id = event_id, 
                             type = event_type, 
-                            name=event_name, 
+                            name = event_name, 
                             timestamp = NoneTimestamp, 
                             duration = duration, 
                             stage_id = stage_id, 

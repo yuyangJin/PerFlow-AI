@@ -37,6 +37,10 @@ class Interleaved1F1BGraph(PPGraph):
             chk = (minib_id - last_mbb_start_minib_id) // step 
         return mb, chk
 
+
+    '''
+    TODO: the method now is tricky. should be applied to fucntion build_graph
+    '''
     def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0):
         '''
         Get event id
@@ -49,7 +53,7 @@ class Interleaved1F1BGraph(PPGraph):
         '''
         Get event name
         '''
-        event_name = str(event_type) + '-' + str(microbatch_id) + '-' + str(__chunk_id)
+        event_name = self.get_event_name(event_type, microbatch_id, __chunk_id)
         
         '''
         Create a new fwd/bwd event
