@@ -30,10 +30,11 @@ class Filter():
 
                             g.m_nodes[src_id] = events[src_id]
 
-                            for dst_id in graph.m_out_edges[src_id]:
-                                dst_event = events[dst_id]
-                                if dst_event.m_stage_id in stage_list:
-                                    g.add_edge(src_id, dst_id)
+                            if src_id in graph.m_out_edges.keys():
+                                for dst_id in graph.m_out_edges[src_id]:
+                                    dst_event = events[dst_id]
+                                    if dst_event.m_stage_id in stage_list:
+                                        g.add_edge(src_id, dst_id)
         return g
     
     def filter(self, graph, stage_list):
