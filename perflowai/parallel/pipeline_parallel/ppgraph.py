@@ -69,6 +69,10 @@ class PPGraph(Trace):
                stage_id * self.m_nmicrobatches + \
                microbatch_id
 
+    def get_event(self, event_type, stage_id, microbatch_id, chunk_id = 0):
+        event_id = self.get_event_id()
+        return self.m_nodes[event_id]
+
     def get_event_types(self):
         return self.event_types
 
