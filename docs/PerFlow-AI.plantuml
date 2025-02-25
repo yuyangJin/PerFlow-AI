@@ -287,10 +287,22 @@ namespace simulator {
 
 }
 
-' }
 
 PPSimulator *-left- PPTrace
 
+namespace trace_op {
+
+    class TraceConverter {
+        - m_input_trace: PPTrace
+        - m_from_type: PipeType
+        - m_to_type: PipeType
+
+        + convert()
+        + run()
+    }
+
+    TraceConverter -up-|> FlowNode
+}
 
 
 @enduml
