@@ -8,3 +8,4 @@ from .workflow import *
 from .reader import *
 from .visualizer import *
 from .parallel import *
+from .trace_op import *
