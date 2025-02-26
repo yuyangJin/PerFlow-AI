@@ -43,6 +43,12 @@ class PPGraph(Trace):
         self.m_cost_config = cost_config
         
         '''
+        int m_nnodes
+        the number of nodes
+        '''
+        self.m_nnodes = 0
+
+        '''
         Dict<int, FwdBwdEvent> m_nodes
         The first key is event_id, the value is the corresponding event.
         '''
@@ -64,10 +70,7 @@ class PPGraph(Trace):
         '''
         Calculate the node id based on the stage, microbatch, and chunk
         '''
-        return event_type.value * self.m_nchunks * self.m_nstages * self.m_nmicrobatches + \
-               chunk_id * self.m_nstages * self.m_nmicrobatches + \
-               stage_id * self.m_nmicrobatches + \
-               microbatch_id
+        return (event_type, stage_id, microbatch_id, chunk_id)
 
     def get_event_types(self):
         return self.event_types
@@ -97,6 +100,12 @@ class PPGraph(Trace):
         Get event id
         '''
         event_id = self.get_event_id(event_type, stage_id, microbatch_id, chunk_id)
+
+        '''
+        Get event num
+        '''
+        self.m_nnodes = self.m_nnodes + 1
+        event_num = self.m_nnodes
         
         '''
         Get event name
@@ -106,7 +115,7 @@ class PPGraph(Trace):
         '''
         Create a new fwd/bwd event
         '''
-        fwdbwd_event = FwdBwdEvent(id = event_id, 
+        fwdbwd_event = FwdBwdEvent(id = event_num, 
                             type = event_type, 
                             name = event_name, 
                             timestamp = NoneTimestamp, 

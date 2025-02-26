@@ -61,6 +61,16 @@ class Event:
     def __repr__(self):
         return self.get_info_str()
 
+    def __eq__(self, other):
+        if type(self) == type(other):
+            return (self.m_id == other.m_id and
+                    self.m_type == other.m_type and
+                    self.m_name == other.m_name and
+                    self.m_timestamp == other.m_timestamp and
+                    self.m_duration == other.m_duration)
+        return false
+
+
 '''
 @class OprtEvent
 An operation event.
