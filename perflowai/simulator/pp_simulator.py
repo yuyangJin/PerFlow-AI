@@ -33,9 +33,35 @@ class PipeConfig:
 A pipeline partition configuration.
 '''
 class PipePartitionConfig:
-    def __init__(self):
-        pass
 
+    '''
+    @func __init__
+    The input partition plan is a list, each element number is 
+    the ratio of partitioned layers on each stage. For example,
+    A balanced 4-stage partition plan is [0.25, 0.25, 0.25, 0.25]
+    '''
+    def __init__(self, n_stages, partition_plan):
+        self.m_nstages = n_stages
+        self.m_partition_plan = partition_plan
+        self.__check()
+
+    '''
+    @func __check
+    Check whether the partition plan is valid or not.
+    '''
+    def __check(self):
+        if self.m_nstages != len(self.m_partition_plan):
+            raise AssertionError("The partition plan is not valid. The length of partition plan shoule be equal to the number of stages!")
+        total = sum(self.m_partition_plan)
+        if total != 1:
+            raise AssertionError("The partition plan is not valid. The sum of each number in a partition plan shoule be 1.0!")
+
+    def get_nstages(self):
+        return self.m_nstages
+    
+    def get_partition_plan(self):
+        return self.m_partition_plan
+        
 '''
 @class PPSimulator
 A pipeline simulator.
