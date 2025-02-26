@@ -38,42 +38,6 @@ class Interleaved1F1BGraph(PPGraph):
         return mb, chk
 
 
-    '''
-    TODO: the method now is tricky. should be applied to fucntion build_graph
-    '''
-    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0):
-        '''
-        Get event id
-        '''
-        event_id = self.get_event_id(event_type, stage_id, microbatch_id, chunk_id)
-        
-        __chunk_id = chunk_id
-        if event_type == EventType.BWD:
-            __chunk_id = self.m_nchunks - chunk_id - 1
-        '''
-        Get event name
-        '''
-        event_name = self.get_event_name(event_type, microbatch_id, __chunk_id)
-        
-        '''
-        Create a new fwd/bwd event
-        '''
-        fwdbwd_event = FwdBwdEvent(id = event_id, 
-                            type = event_type, 
-                            name=event_name, 
-                            timestamp = NoneTimestamp, 
-                            duration = duration, 
-                            stage_id = stage_id, 
-                            microbatch_id = microbatch_id, 
-                            chunk_id = __chunk_id)
-        
-        '''
-        Insert the created event into the node list
-        '''
-        self.m_nodes[event_id] = fwdbwd_event
-
-        return id
-
 
     '''
     Build the graph for Interleaved 1F1B 
@@ -127,7 +91,7 @@ class Interleaved1F1BGraph(PPGraph):
                     
                     ### Steady 1F1B 
                     
-                    cur_bwd_graph_id = self.get_event_id(EventType.BWD, stage, mb, chk)
+                    cur_bwd_graph_id = self.get_event_id(EventType.BWD, stage, mb, self.m_nchunks - chk - 1)
                     cur_bwd_minib_id = self.__compute_minib_id(stage, mb, chk)
                     
                     if cur_bwd_minib_id < (self.m_nmicrobatches * self.m_nchunks - n_warmup_minibs):
@@ -157,7 +121,7 @@ class Interleaved1F1BGraph(PPGraph):
                                 print('last 1F1B')
                                 src_id = cur_bwd_graph_id
                                 bwd_mb, bwd_chk = self.__compute_mb_and_chk(cur_bwd_minib_id+1)
-                                dest_id = self.get_event_id(EventType.BWD, stage, bwd_mb, bwd_chk)
+                                dest_id = self.get_event_id(EventType.BWD, stage, bwd_mb, self.m_nchunks - bwd_chk - 1)
                                 self.add_edge(src_id, dest_id)
                                 # print_dep(1, stage, mb, chk, 1, stage, bwd_mb, bwd_chk)
 
@@ -167,14 +131,14 @@ class Interleaved1F1BGraph(PPGraph):
 
                             src_id = cur_bwd_graph_id
                             bwd_mb, bwd_chk = self.__compute_mb_and_chk(cur_bwd_minib_id+1)
-                            dest_id = self.get_event_id(EventType.BWD, stage, bwd_mb, bwd_chk)
+                            dest_id = self.get_event_id(EventType.BWD, stage, bwd_mb, self.m_nchunks - bwd_chk - 1)
                             self.add_edge(src_id, dest_id)
                             # print_dep(1, stage, mb, chk, 1, stage, bwd_mb, bwd_chk)
                     
                     ### Inter-stage B dependence for every B nodes (the first stage do not need)
                     if stage != 0: 
                         src_id = cur_bwd_graph_id
-                        dest_id = self.get_event_id(EventType.BWD, stage-1, mb, chk)
+                        dest_id = self.get_event_id(EventType.BWD, stage-1, mb, self.m_nchunks - chk - 1)
                         self.add_edge(src_id, dest_id)
                         # print_dep(0, stage, mb, chk, 0, stage-1, mb, chk)
 
