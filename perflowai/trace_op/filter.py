@@ -3,7 +3,7 @@ from ..parallel.pipeline_parallel.gpipe import GPipeGraph
 from ..parallel.pipeline_parallel.pipedream import PipeDreamGraph
 from ..parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
 from ..parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph
-from perflowai.workflow.flow import FlowNode
+from ..workflow.flow import FlowNode
 # Import from relative path
 import copy
 

@@ -1,5 +1,5 @@
 from ..parallel.pipeline_parallel.ppgraph import PPGraph
-from perflowai.workflow.flow import FlowNode
+from ..workflow.flow import FlowNode
 # Import from relative path
 import copy
 
