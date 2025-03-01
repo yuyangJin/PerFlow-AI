@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# pip install
+build/
+dist/
+eggs/
+sdist/
+*.egg-info/
+
+# pytest
+.pytest_cache/
+
+
+# mypy
+.mypy_cache/
