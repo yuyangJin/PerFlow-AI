@@ -113,7 +113,7 @@ PerFlow-AI was created and developed by Yuyang Jin, Xirui Shui, Runxin Zhong, Mi
 ```tex
 @misc{perflowai2024jin,
       title={PerFlow-AI: a programable performance analysis, modeling, prediction tool for AI systems},
-      author={Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, and Jidong Zhai},
+      author={Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, Zan Zong, and Jidong Zhai},
       year={2025},
       publisher = {GitHub},
       howpublished = {\url{https://github.com/yuyangJin/PerFlow-AI}},
