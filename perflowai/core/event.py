@@ -5,6 +5,7 @@
 from enum import Enum
 
 NoneTimestamp = -1
+NoneMem = -1
 
 class EventType(Enum):
     OPRT = 0
@@ -18,7 +19,7 @@ class EventType(Enum):
 An event is a basic unit in the trace.
 '''
 class Event:
-    def __init__(self, id, type, name, timestamp, duration):
+    def __init__(self, id, type, name, timestamp, duration, mem = NoneMem):
         if not isinstance(type, EventType):
             raise ValueError("Type must be an instance of EventType")
         self.m_id = id
@@ -26,6 +27,7 @@ class Event:
         self.m_name = name
         self.m_timestamp = timestamp
         self.m_duration = duration
+        self.m_mem = mem
     
     def get_id(self):
         return self.m_id
@@ -52,6 +54,14 @@ class Event:
             raise TypeError("Duration must be a number")
         self.m_duration = duration
 
+    def get_mem(self):
+        return self.m_mem
+
+    def set_mem(self, mem):
+        if not isinstance(mem, (int, float)):
+            raise TypeError("Duration must be a number")
+        self.m_mem = mem
+
     def get_info_str(self):
         return '<Event ' + str(self.m_id) + ':' + self.m_name + '>'
 
@@ -67,7 +77,8 @@ class Event:
                     self.m_type == other.m_type and
                     self.m_name == other.m_name and
                     self.m_timestamp == other.m_timestamp and
-                    self.m_duration == other.m_duration)
+                    self.m_duration == other.m_duration and
+                    self.m_mem == other.m_mem)
         return false
 
 
@@ -111,8 +122,8 @@ A forward-backward event.
 '''
 class FwdBwdEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
-                stage_id, microbatch_id, chunk_id):
-        super().__init__(id, type, name, timestamp, duration)
+                stage_id, microbatch_id, chunk_id, mem = NoneMem):
+        super().__init__(id, type, name, timestamp, duration, mem)
         if not (type == EventType.FWD or type == EventType.BWD or type == EventType.WGT):
             raise ValueError("FwdBwdEvent's Type must be FWD or BWD or WGT")
         self.m_stage_id = stage_id

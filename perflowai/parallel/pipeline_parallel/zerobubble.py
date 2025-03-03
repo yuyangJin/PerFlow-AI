@@ -1,4 +1,4 @@
-from perflowai.parallel.pipeline_parallel.ppgraph import PPGraph
+from .ppgraph import PPGraph
 from ...core.event import EventType, FwdBwdEvent, NoneTimestamp
 from enum import Enum
 
@@ -39,27 +39,35 @@ class ZeroBubbleGraph(PPGraph):
                         if type == EventType.FWD:
                             # Balanced partition
                             if isinstance(self.m_cost_config.fwd_time, int):
-                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                                duration = self.m_cost_config.fwd_time
+                                mem = self.m_cost_config.fwd_mem
                             # Imbalanced partition
                             elif isinstance(self.m_cost_config.fwd_time, list):
-                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time[stage], chk)
-                                print(self.m_cost_config.fwd_time[stage])
+                                duration = self.m_cost_config.fwd_time[stage]
+                                mem = self.m_cost_config.fwd_mem[stage]
                         elif type == EventType.BWD:
-                            # Balanced partition
                             if isinstance(self.m_cost_config.bwd_time, int):
-                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
-                            # Imbalanced partition
+                                duration = self.m_cost_config.bwd_time
+                                mem = self.m_cost_config.bwd_mem
                             elif isinstance(self.m_cost_config.bwd_time, list):
-                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time[stage], chk)
+                                duration = self.m_cost_config.bwd_time[stage]
+                                mem = self.m_cost_config.bwd_mem[stage]
                         elif type == EventType.WGT:
-                            # Balanced partition
                             if isinstance(self.m_cost_config.wgt_time, int):
-                                self.add_node(type, stage, mb, self.m_cost_config.wgt_time, chk)
-                            # Imbalanced partition
+                                duration = self.m_cost_config.wgt_time
+                                mem = self.m_cost_config.wgt_mem
                             elif isinstance(self.m_cost_config.wgt_time, list):
-                                self.add_node(type, stage, mb, self.m_cost_config.wgt_time[stage], chk)
+                                duration = self.m_cost_config.wgt_time[stage]
+                                mem = self.m_cost_config.wgt_mem[stage]
                         else:
                             assert False
+
+                        self.add_node(event_type = type, 
+                                      stage_id = stage, 
+                                      microbatch_id = mb, 
+                                      duration = duration, 
+                                      chunk_id = chk, 
+                                      mem = mem)
 
     '''
         Build the graph for ZeroBubble

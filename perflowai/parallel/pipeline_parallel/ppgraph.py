@@ -16,9 +16,9 @@ class PipeCostConfig:
     bwd_time: int = 1
     wgt_time: int = 1
     comm_time: int = 1
-    fwd_mem: float = 2
-    bwd_mem: float = -1
-    wgt_mem: float = -1
+    fwd_mem: float = 2.0
+    bwd_mem: float = -2.0
+    wgt_mem: float = 0.0
 
     def __post_init__(self):
         # int for balanced partition, list for imbalanced partition
@@ -29,11 +29,23 @@ class PipeCostConfig:
 
         # At least, the format and shape of fwd_time and bwd_time should be the same
         assert type(self.fwd_time) == type(self.bwd_time)
+
         if isinstance(self.fwd_time, list):
             assert len(self.fwd_time) == len(self.bwd_time)
         
         # Check memory foorprint
-        assert self.fwd_mem + self.bwd_mem + self.wgt_mem == 0
+
+        assert isinstance(self.fwd_mem, (float, list)) 
+        assert isinstance(self.bwd_mem, (float, list)) 
+        assert isinstance(self.wgt_mem, (float, list)) 
+
+        assert type(self.fwd_mem) == type(self.bwd_mem)
+
+        if isinstance(self.fwd_mem, float):
+            assert self.fwd_mem + self.bwd_mem + self.wgt_mem == 0
+
+        if isinstance(self.fwd_mem, list):
+            assert len(self.fwd_mem) == len(self.bwd_mem)
 
 '''
 @class PPGraph
@@ -59,8 +71,11 @@ class PPGraph(Trace):
             if isinstance(cost_config.fwd_time, int):
                 assert isinstance(cost_config.bwd_time, int)
             elif isinstance(cost_config.fwd_time, list):
-                assert isinstance(cost_config.bwd_time, list) 
+                assert isinstance(cost_config.bwd_time, list)
                 assert self.m_nstages == len(cost_config.fwd_time) == len(cost_config.bwd_time)
+                
+            if isinstance(cost_config.fwd_mem, list):
+                assert len(cost_config.fwd_time) == len(cost_config.fwd_mem) == len(cost_config.bwd_mem)
 
 
         '''
@@ -116,7 +131,7 @@ class PPGraph(Trace):
     def get_nmicrobatches(self):
         return self.m_nmicrobatches
 
-    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0):
+    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0, mem = 0):
         '''
         Get event id
         '''
@@ -143,7 +158,8 @@ class PPGraph(Trace):
                             duration = duration, 
                             stage_id = stage_id, 
                             microbatch_id = microbatch_id, 
-                            chunk_id = chunk_id)
+                            chunk_id = chunk_id,
+                            mem = mem)
         
         '''
         Insert the created event into the node list
@@ -167,21 +183,30 @@ class PPGraph(Trace):
                         if type == EventType.FWD:
                             # Balanced partition
                             if isinstance(self.m_cost_config.fwd_time, int):
-                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                                duration = self.m_cost_config.fwd_time
+                                mem = self.m_cost_config.fwd_mem
                             # Imbalanced partition
                             elif isinstance(self.m_cost_config.fwd_time, list):
-                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time[stage], chk)
+                                duration = self.m_cost_config.fwd_time[stage]
+                                mem = self.m_cost_config.fwd_mem[stage]
                         elif type == EventType.BWD:
-                            # Balanced partition
                             if isinstance(self.m_cost_config.bwd_time, int):
-                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
-                            # Imbalanced partition
+                                duration = self.m_cost_config.bwd_time
+                                mem = self.m_cost_config.bwd_mem
                             elif isinstance(self.m_cost_config.bwd_time, list):
-                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time[stage], chk)
+                                duration = self.m_cost_config.bwd_time[stage]
+                                mem = self.m_cost_config.bwd_mem[stage]
                         elif type == EventType.WGT:
                             continue
                         else:
                             assert False
+                        
+                        self.add_node(event_type = type, 
+                                      stage_id = stage, 
+                                      microbatch_id = mb, 
+                                      duration = duration, 
+                                      chunk_id = chk, 
+                                      mem = mem)
 
     def add_edge(self, src_id, dst_id):
         '''
