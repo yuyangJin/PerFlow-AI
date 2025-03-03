@@ -3,8 +3,7 @@ test Trace class
 '''
 
 import pytest
-from perflowai.core.event import Event, FwdBwdEvent, EventType
-from perflowai.core.trace import Trace
+from perflowai.core import Event, FwdBwdEvent, EventType, Trace
 
 def test_Trace():
     event0 = Event(id=0, type=EventType.OPRT, name="Event0", timestamp=0, duration=10)

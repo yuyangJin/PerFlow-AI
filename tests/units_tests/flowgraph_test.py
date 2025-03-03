@@ -2,7 +2,7 @@
 test FlowGraph class
 ''' 
 
-from perflowai.workflow.flow import FlowGraph, FlowNode
+from perflowai.workflow import FlowGraph, FlowNode
 
 def test_FlowGraph():
     graph = FlowGraph()

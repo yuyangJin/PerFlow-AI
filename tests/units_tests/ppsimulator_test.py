@@ -2,9 +2,8 @@
 test PPSimulator class
 '''
 
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
+from perflowai.simulator import PPSimulator, PipeType
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph
 
 def test_PPSimulator():
 

@@ -2,7 +2,7 @@
 test FlowNode class
 '''
 
-from perflowai.workflow.flow import FlowNode
+from perflowai.workflow import FlowNode
 
 def test_FlowNode():
     node = FlowNode("test", 0, [], [])

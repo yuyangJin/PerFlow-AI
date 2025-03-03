@@ -3,10 +3,9 @@ test Filter class
 '''
 import pytest
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
-from perflowai.core.event import NoneTimestamp, EventType
-from perflowai.trace_op.filter import Filter
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph
+from perflowai.core import NoneTimestamp, EventType
+from perflowai.trace_op import Filter
 
 def test_Filter():
     '''

@@ -3,7 +3,7 @@ test Event class
 '''
 
 import pytest
-from perflowai.core.event import Event, EventType
+from perflowai.core import Event, EventType
 
 def test_Event():
     # 测试type参数检查
