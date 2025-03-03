@@ -1,5 +1,5 @@
 '''
-@package perflowai.simulator
+@module perflowai.simulator
 '''
 
 from .pp_simulator import PPSimulator

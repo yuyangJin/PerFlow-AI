@@ -1,13 +1,12 @@
 '''
-@package perflowai.visualizer.trace_visualizer
+@module trace visualizer
 '''
 
 import numpy as np
 import drawsvg as draw
-from perflowai.workflow.flow import FlowNode
+from ..workflow import FlowNode
 
-from perflowai.core.event import Event, FwdBwdEvent, EventType
-from perflowai.core.trace import Trace
+from ..core import Event, FwdBwdEvent, EventType, Trace
 
 ENABLE_BORDER = True
 ENABLE_BATCH_ID = True

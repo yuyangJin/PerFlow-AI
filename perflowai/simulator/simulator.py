@@ -1,4 +1,8 @@
-from perflowai.workflow.flow import FlowNode
+'''
+@module simulator
+'''
+
+from ..workflow import FlowNode
 
 '''
 @class Simulator

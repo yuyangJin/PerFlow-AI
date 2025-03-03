@@ -1,9 +1,9 @@
 '''
-
+@module trace reader
 '''
-from ..workflow.flow import FlowNode
-from ..core.event import Event, EventType
-from ..core.trace import Trace
+
+from ..workflow import FlowNode
+from ..core import Event, EventType, Trace
 
 from typing import List
 

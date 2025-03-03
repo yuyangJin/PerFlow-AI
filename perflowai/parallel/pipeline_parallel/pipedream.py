@@ -1,5 +1,9 @@
+'''
+@module PipeDream
+'''
+
 from .ppgraph import PPGraph
-from ...core.event import EventType
+from ...core import EventType
 
 '''
 @class PipeDreamGraph

@@ -1,10 +1,10 @@
-from ..parallel.pipeline_parallel.ppgraph import PPGraph
-from ..parallel.pipeline_parallel.gpipe import GPipeGraph
-from ..parallel.pipeline_parallel.pipedream import PipeDreamGraph
-from ..parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
-from ..parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph
-from ..workflow.flow import FlowNode
-# Import from relative path
+'''
+@module trace filter
+'''
+
+from ..parallel.pipeline_parallel import PPGraph, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph
+from ..workflow import FlowNode
+
 import copy
 
 # derived from FlowNode.

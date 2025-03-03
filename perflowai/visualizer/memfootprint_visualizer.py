@@ -4,7 +4,7 @@
 
 import matplotlib.pyplot as plt 
 
-from ..workflow.flow import FlowNode
+from ..workflow import FlowNode
 
 '''
 @class MemoryFootprintVisualizer

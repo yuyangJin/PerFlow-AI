@@ -1,7 +1,8 @@
 '''
-@package perflowai.simulator.pp_simulator
+@module pipeline parallel simulator
 '''
-from ..core.trace import PPTrace
+
+from ..core import PPTrace
 from .simulator import Simulator
 
 from enum import Enum

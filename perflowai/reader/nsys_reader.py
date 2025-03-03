@@ -1,3 +1,6 @@
+'''
+@module nsys trace reader
+'''
 
 from .reader import TraceReader
 

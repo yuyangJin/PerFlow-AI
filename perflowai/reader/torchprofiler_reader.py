@@ -1,6 +1,9 @@
+'''
+@module torchprofiler trace reader
+'''
+
 from .reader import TraceReader
-from ..core.event import Event, EventType
-from ..core.trace import Trace
+from ..core import Event, EventType, Trace
 
 from typing import List
 

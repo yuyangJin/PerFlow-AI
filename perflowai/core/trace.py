@@ -1,7 +1,7 @@
 '''
 @module Trace
 '''
-from perflowai.core.event import Event
+from .event import Event
 
 
 '''
