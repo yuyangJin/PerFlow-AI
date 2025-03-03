@@ -30,11 +30,11 @@ class PipeCostConfig:
         # At least, the format and shape of fwd_time and bwd_time should be the same
         assert type(self.fwd_time) == type(self.bwd_time)
 
-
         if isinstance(self.fwd_time, list):
             assert len(self.fwd_time) == len(self.bwd_time)
         
         # Check memory foorprint
+
         assert isinstance(self.fwd_mem, (float, list)) 
         assert isinstance(self.bwd_mem, (float, list)) 
         assert isinstance(self.wgt_mem, (float, list)) 
@@ -46,8 +46,6 @@ class PipeCostConfig:
 
         if isinstance(self.fwd_mem, list):
             assert len(self.fwd_mem) == len(self.bwd_mem)
-        
-
 
 '''
 @class PPGraph

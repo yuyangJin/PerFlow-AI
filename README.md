@@ -5,7 +5,7 @@ PerFlow-AI provides components, including *memory*, *offloading*, and *parallel 
 
 AI system researchers can quickly **evaluate performance benifits** through simulation based on PerFlow-AI in advance before building a new architecture AI system or implementing specific optimizations.
 
-**PerFlow-AI is under continuous development!**
+**PerFlow-AI is under continuous development!** 🔥
 
 We welcome AI system researchers to use it, and we welcome everyone to provide valuable suggestions for PerFlow-AI during the trial process!
 
@@ -105,7 +105,7 @@ The output result is a `trace.svg`:
 ![img](./examples/heterogeneous_resource_pp/trace.png)
 
 ## Developers
-PerFlow-AI was created and developed by Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, and Jidong Zhai.
+PerFlow-AI was created and developed by Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, Zan Zong, and Jidong Zhai.
 
 
 ## Cite
@@ -113,7 +113,7 @@ PerFlow-AI was created and developed by Yuyang Jin, Xirui Shui, Runxin Zhong, Mi
 ```tex
 @misc{perflowai2024jin,
       title={PerFlow-AI: a programable performance analysis, modeling, prediction tool for AI systems},
-      author={Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, and Jidong Zhai},
+      author={Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, Zan Zong, and Jidong Zhai},
       year={2025},
       publisher = {GitHub},
       howpublished = {\url{https://github.com/yuyangJin/PerFlow-AI}},
