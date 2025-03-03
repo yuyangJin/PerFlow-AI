@@ -2,16 +2,11 @@
 test Gernerate heterogeneous graph & Visualize the simulated trace
 '''
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
-from perflowai.parallel.pipeline_parallel.pipedream import PipeDreamGraph
-from perflowai.parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
-from perflowai.parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph, ScheduleType
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
-from perflowai.trace_op.filter import Filter
-from perflowai.trace_op.merge import Merge
-from perflowai.core.event import EventType
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
+from perflowai.simulator import PPSimulator, PipeType
+from perflowai.visualizer import TraceVisiualizer
+from perflowai.trace_op import Filter, Merge
+from perflowai.core import EventType
 
 def test_Heterogeneous_GPipe_Simulate_Visualize():
     stage_events_str = ['[<Event 1:F:0-0>, <Event 2:F:1-0>, <Event 3:F:2-0>, <Event 4:F:3-0>, <Event 5:F:4-0>, <Event 6:F:5-0>, <Event 7:F:6-0>, <Event 8:F:7-0>, <Event 9:F:8-0>, <Event 10:F:9-0>, <Event 41:B:0-0>, <Event 42:B:1-0>, <Event 43:B:2-0>, <Event 44:B:3-0>, <Event 45:B:4-0>, <Event 46:B:5-0>, <Event 47:B:6-0>, <Event 48:B:7-0>, <Event 49:B:8-0>, <Event 50:B:9-0>]',

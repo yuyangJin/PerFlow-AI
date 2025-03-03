@@ -2,10 +2,9 @@
 test Visualize the simulated trace of GPipe
 '''
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph
+from perflowai.simulator import PPSimulator, PipeType
+from perflowai.visualizer import TraceVisiualizer
 
 stage_events_str = ['[<Event 1:F:0-0>, <Event 2:F:1-0>, <Event 3:F:2-0>, <Event 4:F:3-0>, <Event 5:F:4-0>, <Event 6:F:5-0>, <Event 7:F:6-0>, <Event 8:F:7-0>, <Event 9:F:8-0>, <Event 10:F:9-0>, <Event 41:B:0-0>, <Event 42:B:1-0>, <Event 43:B:2-0>, <Event 44:B:3-0>, <Event 45:B:4-0>, <Event 46:B:5-0>, <Event 47:B:6-0>, <Event 48:B:7-0>, <Event 49:B:8-0>, <Event 50:B:9-0>]',
                     '[<Event 11:F:0-0>, <Event 12:F:1-0>, <Event 13:F:2-0>, <Event 14:F:3-0>, <Event 15:F:4-0>, <Event 16:F:5-0>, <Event 17:F:6-0>, <Event 18:F:7-0>, <Event 19:F:8-0>, <Event 20:F:9-0>, <Event 51:B:0-0>, <Event 52:B:1-0>, <Event 53:B:2-0>, <Event 54:B:3-0>, <Event 55:B:4-0>, <Event 56:B:5-0>, <Event 57:B:6-0>, <Event 58:B:7-0>, <Event 59:B:8-0>, <Event 60:B:9-0>]',

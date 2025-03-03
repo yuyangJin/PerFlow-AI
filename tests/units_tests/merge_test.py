@@ -1,15 +1,13 @@
 '''
-test Filter class
+test Merge class
 '''
 import pytest
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
-from perflowai.core.event import NoneTimestamp, EventType
-from perflowai.trace_op.filter import Filter
-from perflowai.trace_op.merge import Merge
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph
+from perflowai.core import NoneTimestamp, EventType
+from perflowai.trace_op import Filter, Merge
 
-def test_Filter():
+def test_Merge():
     def check_subgraph(graph, subgraph, target_stage_list):
         '''
             0 CHECK NODES IN SUBGRAPH

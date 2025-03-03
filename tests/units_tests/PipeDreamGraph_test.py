@@ -3,9 +3,8 @@ test PipeDreamGraph class
 '''
 import pytest
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.pipedream import PipeDreamGraph
-from perflowai.core.event import NoneTimestamp, EventType
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, PipeDreamGraph
+from perflowai.core import NoneTimestamp, EventType
 
 def test_PipeDreamGraph():
 

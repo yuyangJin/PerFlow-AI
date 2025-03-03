@@ -3,7 +3,7 @@ test Generate pipeline & Visualize the memory footprint of the simulated trace
 '''
 
 from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
+from perflowai.simulator import PPSimulator, PipeType
 from perflowai.visualizer import MemoryFootprintVisualizer
 
 def test_GPipe_Memory_Footprint_Visualize():

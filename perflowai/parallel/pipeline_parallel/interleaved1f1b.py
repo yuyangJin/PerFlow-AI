@@ -1,5 +1,9 @@
+'''
+@module Interleaved 1F1B
+'''
+
 from .ppgraph import PPGraph
-from ...core.event import EventType, FwdBwdEvent, NoneTimestamp
+from ...core import EventType, FwdBwdEvent, NoneTimestamp
 
 '''
 @class Interleaved1F1BGraph

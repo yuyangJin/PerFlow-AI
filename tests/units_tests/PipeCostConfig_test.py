@@ -14,9 +14,9 @@ def test_PipeCostConfig():
     assert pcc.bwd_time == 1
     assert pcc.wgt_time == 1
     assert pcc.comm_time == 1
-    assert pcc.fwd_mem == 2
-    assert pcc.bwd_mem == -1
-    assert pcc.wgt_mem == -1
+    assert pcc.fwd_mem == 2.0
+    assert pcc.bwd_mem == -2.0
+    assert pcc.wgt_mem == 0.0
 
     # Invalid 
     with pytest.raises(AssertionError):

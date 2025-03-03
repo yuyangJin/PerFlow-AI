@@ -1,2 +1,8 @@
-from .event import Event, OprtEvent, CommEvent, FwdBwdEvent
-from .trace import Trace
+'''
+@module perflowai.core
+'''
+
+from .event import EventType, Event, OprtEvent, CommEvent, FwdBwdEvent, NoneTimestamp, NoneMem
+from .trace import Trace, PPTrace
+
+__all__ = ['EventType', 'OprtEvent', 'CommEvent', 'FwdBwdEvent']

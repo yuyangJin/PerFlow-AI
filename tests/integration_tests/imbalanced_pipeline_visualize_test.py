@@ -2,9 +2,9 @@
 test Generate imbalanced pipeline & Visualize the simulated trace
 '''
 
-from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
+from perflowai.parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
+from perflowai.simulator import PPSimulator, PipeType
+from perflowai.visualizer import TraceVisiualizer
 
 def test_Imbalanced_GPipe_Simulate_Visualize():
 

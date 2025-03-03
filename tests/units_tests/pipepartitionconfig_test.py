@@ -4,7 +4,7 @@ test PipePartitionConfig
 
 import pytest
 
-from perflowai.simulator.pp_simulator import PipePartitionConfig
+from perflowai.simulator import PipePartitionConfig
 
 def test_PipePartitionConfig():
     with pytest.raises(AssertionError):

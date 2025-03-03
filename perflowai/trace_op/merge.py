@@ -1,6 +1,10 @@
-from ..parallel.pipeline_parallel.ppgraph import PPGraph
-from ..workflow.flow import FlowNode
-# Import from relative path
+'''
+@module trace merger
+'''
+
+from ..parallel.pipeline_parallel import PPGraph
+from ..workflow import FlowNode
+
 import copy
 
 # derived from FlowNode.

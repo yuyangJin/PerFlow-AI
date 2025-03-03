@@ -1,0 +1,3 @@
+'''
+@module communication simulator
+'''

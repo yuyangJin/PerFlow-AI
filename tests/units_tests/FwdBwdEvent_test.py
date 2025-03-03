@@ -3,7 +3,7 @@ test FwdBwdEvent class
 '''
 
 import pytest
-from perflowai.core.event import FwdBwdEvent, EventType
+from perflowai.core import FwdBwdEvent, EventType
 
 def test_FwdBwdEvent():
     # 测试type参数检查

@@ -1,5 +1,10 @@
+'''
+@module ZeroBubble
+'''
+
 from .ppgraph import PPGraph
-from ...core.event import EventType, FwdBwdEvent, NoneTimestamp
+from ...core import EventType, FwdBwdEvent, NoneTimestamp
+
 from enum import Enum
 
 class ScheduleType(Enum):
@@ -37,27 +42,37 @@ class ZeroBubbleGraph(PPGraph):
                 for mb in range(n_microbatches):
                     for chk in range(n_chunks):
                         if type == EventType.FWD:
-                            # Balanced partition
-                            if isinstance(self.m_cost_config.fwd_time, int):
+                            # Duration
+                            if isinstance(self.m_cost_config.fwd_time, int): # Balanced partition
                                 duration = self.m_cost_config.fwd_time
-                                mem = self.m_cost_config.fwd_mem
-                            # Imbalanced partition
-                            elif isinstance(self.m_cost_config.fwd_time, list):
+                            elif isinstance(self.m_cost_config.fwd_time, list): # Imbalanced partition
                                 duration = self.m_cost_config.fwd_time[stage]
+                            # Memory
+                            if isinstance(self.m_cost_config.fwd_mem, float):
+                                mem = self.m_cost_config.fwd_mem
+                            elif isinstance(self.m_cost_config.fwd_mem, list):
                                 mem = self.m_cost_config.fwd_mem[stage]
                         elif type == EventType.BWD:
-                            if isinstance(self.m_cost_config.bwd_time, int):
+                            # Duration
+                            if isinstance(self.m_cost_config.bwd_time, int): # Balanced partition
                                 duration = self.m_cost_config.bwd_time
-                                mem = self.m_cost_config.bwd_mem
-                            elif isinstance(self.m_cost_config.bwd_time, list):
+                            elif isinstance(self.m_cost_config.bwd_time, list): # Imbalanced partition
                                 duration = self.m_cost_config.bwd_time[stage]
+                            # Memory
+                            if isinstance(self.m_cost_config.bwd_mem, float):
+                                mem = self.m_cost_config.bwd_mem
+                            elif isinstance(self.m_cost_config.bwd_mem, list):
                                 mem = self.m_cost_config.bwd_mem[stage]
                         elif type == EventType.WGT:
-                            if isinstance(self.m_cost_config.wgt_time, int):
+                            # Duration
+                            if isinstance(self.m_cost_config.wgt_time, int): # Balanced partition
                                 duration = self.m_cost_config.wgt_time
-                                mem = self.m_cost_config.wgt_mem
-                            elif isinstance(self.m_cost_config.wgt_time, list):
+                            elif isinstance(self.m_cost_config.wgt_time, list): # Imbalanced partition
                                 duration = self.m_cost_config.wgt_time[stage]
+                            # Memory
+                            if isinstance(self.m_cost_config.wgt_mem, float):
+                                mem = self.m_cost_config.wgt_mem
+                            elif isinstance(self.m_cost_config.wgt_mem, list):
                                 mem = self.m_cost_config.wgt_mem[stage]
                         else:
                             assert False

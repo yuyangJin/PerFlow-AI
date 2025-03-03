@@ -1,5 +1,5 @@
 '''
-@package perflowai.simulator.dptp_simulator
+@module data/tensor parallel simulator
 '''
 
 from .simulator import Simulator

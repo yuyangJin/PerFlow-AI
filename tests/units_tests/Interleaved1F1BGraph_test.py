@@ -3,11 +3,10 @@ test Interleaved1F1BGraph class
 '''
 import pytest
 
-from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
-from perflowai.parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
-from perflowai.core.event import NoneTimestamp, EventType
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, Interleaved1F1BGraph
+from perflowai.core import NoneTimestamp, EventType
 
-def test_Interleaved1F1BGraphGraph():
+def test_Interleaved1F1BGraph():
 
     g = Interleaved1F1BGraph(4, 10, 2, cost_config = PipeCostConfig(
         fwd_time = 5478,
