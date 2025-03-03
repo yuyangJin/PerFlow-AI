@@ -16,6 +16,13 @@ class ZeroBubbleGraph(PPGraph):
         self.event_types = [EventType.FWD, EventType.BWD, EventType.WGT]
         self.schedule_type = schedule_type
     
+        # Check whether the cost_config is valid
+        if cost_config != None:
+            if isinstance(cost_config.fwd_time, int):
+                assert isinstance(cost_config.bwd_time, int) and isinstance(cost_config.wgt_time, int)
+            elif isinstance(cost_config.fwd_time, list):
+                assert isinstance(cost_config.bwd_time, list) and isinstance(cost_config.wgt_time, list)
+                assert self.m_nstages == len(cost_config.fwd_time) == len(cost_config.bwd_time) == len(cost_config.wgt_time)
 
     def generate_nodes(self):
         if self.m_cost_config == None:
@@ -30,11 +37,27 @@ class ZeroBubbleGraph(PPGraph):
                 for mb in range(n_microbatches):
                     for chk in range(n_chunks):
                         if type == EventType.FWD:
-                            self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                            # Balanced partition
+                            if isinstance(self.m_cost_config.fwd_time, int):
+                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                            # Imbalanced partition
+                            elif isinstance(self.m_cost_config.fwd_time, list):
+                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time[stage], chk)
+                                print(self.m_cost_config.fwd_time[stage])
                         elif type == EventType.BWD:
-                            self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
+                            # Balanced partition
+                            if isinstance(self.m_cost_config.bwd_time, int):
+                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
+                            # Imbalanced partition
+                            elif isinstance(self.m_cost_config.bwd_time, list):
+                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time[stage], chk)
                         elif type == EventType.WGT:
-                            self.add_node(type, stage, mb, self.m_cost_config.wgt_time, chk)
+                            # Balanced partition
+                            if isinstance(self.m_cost_config.wgt_time, int):
+                                self.add_node(type, stage, mb, self.m_cost_config.wgt_time, chk)
+                            # Imbalanced partition
+                            elif isinstance(self.m_cost_config.wgt_time, list):
+                                self.add_node(type, stage, mb, self.m_cost_config.wgt_time[stage], chk)
                         else:
                             assert False
 

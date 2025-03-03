@@ -21,10 +21,18 @@ class PipeCostConfig:
     wgt_mem: float = -1
 
     def __post_init__(self):
-        assert type(self.fwd_time) is int
-        assert type(self.bwd_time) is int
-        assert type(self.wgt_time) is int
-        assert type(self.comm_time) is int
+        # int for balanced partition, list for imbalanced partition
+        assert isinstance(self.fwd_time, (int, list)) 
+        assert isinstance(self.bwd_time, (int, list)) 
+        assert isinstance(self.wgt_time, (int, list)) 
+        assert isinstance(self.comm_time, (int, list))
+
+        # At least, the format and shape of fwd_time and bwd_time should be the same
+        assert type(self.fwd_time) == type(self.bwd_time)
+        if isinstance(self.fwd_time, list):
+            assert len(self.fwd_time) == len(self.bwd_time)
+        
+        # Check memory foorprint
         assert self.fwd_mem + self.bwd_mem + self.wgt_mem == 0
 
 '''
@@ -42,6 +50,19 @@ class PPGraph(Trace):
         self.m_nchunks = nchunks
         self.m_cost_config = cost_config
         
+        # Check whether the cost config (type: PipeCostConfig) is valid
+        # Check fwd time only is sufficient, because the lengths of fwd, bwd, and wgt time have been check
+        if cost_config != None and isinstance(cost_config.fwd_time, list):
+            assert nstages == len(cost_config.fwd_time)
+        
+        if cost_config != None:
+            if isinstance(cost_config.fwd_time, int):
+                assert isinstance(cost_config.bwd_time, int)
+            elif isinstance(cost_config.fwd_time, list):
+                assert isinstance(cost_config.bwd_time, list) 
+                assert self.m_nstages == len(cost_config.fwd_time) == len(cost_config.bwd_time)
+
+
         '''
         int m_nnodes
         the number of nodes
@@ -144,9 +165,19 @@ class PPGraph(Trace):
                 for mb in range(n_microbatches):
                     for chk in range(n_chunks):
                         if type == EventType.FWD:
-                            self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                            # Balanced partition
+                            if isinstance(self.m_cost_config.fwd_time, int):
+                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time, chk)
+                            # Imbalanced partition
+                            elif isinstance(self.m_cost_config.fwd_time, list):
+                                self.add_node(type, stage, mb, self.m_cost_config.fwd_time[stage], chk)
                         elif type == EventType.BWD:
-                            self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
+                            # Balanced partition
+                            if isinstance(self.m_cost_config.bwd_time, int):
+                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time, chk)
+                            # Imbalanced partition
+                            elif isinstance(self.m_cost_config.bwd_time, list):
+                                self.add_node(type, stage, mb, self.m_cost_config.bwd_time[stage], chk)
                         elif type == EventType.WGT:
                             continue
                         else:
