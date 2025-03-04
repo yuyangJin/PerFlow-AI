@@ -13,6 +13,14 @@ class EventType(Enum):
     FWD = 2
     BWD = 3
     WGT = 4
+    OFFL = 5
+    REL = 6
+
+class LoadType(Enum):
+    GPU2CPU_PCIE = 0
+    CPU2GPU_PCIE = 1
+    GPU2CPU_NVLink = 2
+    CPU2GPU_NVLink = 3
 
 '''
 @class Event
@@ -130,6 +138,40 @@ class FwdBwdEvent(Event):
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
 
+    def get_stage_id(self):
+        return self.m_stage_id
+
+    def get_microbatch_id(self):
+        return self.m_microbatch_id
+
+    def get_chunk_id(self):
+        return self.m_chunk_id
+
+'''
+@class OffReLoadEvent
+A offloading-reloading event.
+'''
+class OffReLoadEvent(Event):
+    def __init__(self, id, type, name, timestamp, duration, 
+                load_ratio, load_type, 
+                stage_id, microbatch_id, chunk_id, mem = NoneMem,):
+        super().__init__(id, type, name, timestamp, duration, mem)
+        if not (type == EventType.OFFL or type == EventType.REL):
+            raise ValueError("OffReLoadEvent's Type must be OFFL or REL")
+        if not isinstance(load_type, LoadType):
+            raise ValueError("load_type must be an instance of LoadType")
+        self.m_load_ratio = load_ratio
+        self.m_load_type = load_type
+        self.m_stage_id = stage_id
+        self.m_microbatch_id = microbatch_id
+        self.m_chunk_id = chunk_id
+
+    def get_load_ratio(self):
+        return self.m_load_ratio
+
+    def get_load_type(self):
+        return self.m_load_type
+        
     def get_stage_id(self):
         return self.m_stage_id
 
