@@ -10,7 +10,7 @@ from ...core import EventType, FwdBwdEvent, NoneTimestamp
 An Interleaved1F1BGraph is a pipeline trace for Interleaved 1F1B.
 '''
 class Interleaved1F1BGraph(PPGraph):
-    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None):
+    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None):
         super().__init__(nstages, nmicrobatches, nchunks, cost_config)
 
     '''
@@ -146,3 +146,12 @@ class Interleaved1F1BGraph(PPGraph):
                         self.add_edge(src_id, dest_id)
                         # print_dep(0, stage, mb, chk, 0, stage-1, mb, chk)
 
+        '''
+            Offloading
+        '''
+        if self.m_offload == True:
+            ratio = self.m_offload_config.load_ratio
+            for stage in range(self.m_nstages):
+                load_events = []
+
+                # TODO: issue#54 Add node and dependence for each stage @shuixirui

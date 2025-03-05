@@ -16,18 +16,23 @@ class EventType(Enum):
     OFFL = 5
     REL = 6
 
-class LoadType(Enum):
-    GPU2CPU_PCIE = 0
-    CPU2GPU_PCIE = 1
-    GPU2CPU_NVLink = 2
-    CPU2GPU_NVLink = 3
+class ResourceType(Enum):
+    NONE = -1
+    G2C_PCIE = 0
+    C2G_PCIE = 1
+    G2C_NVLK = 2
+    C2G_NVLK = 3
+    G2G_NVLK = 4
+    G2G_DRCT = 5
+    GPU = 6
+    CPU = 7
 
 '''
 @class Event
 An event is a basic unit in the trace.
 '''
 class Event:
-    def __init__(self, id, type, name, timestamp, duration, mem = NoneMem):
+    def __init__(self, id, type, name, timestamp, duration, mem = NoneMem, resource_type = ResourceType.NONE):
         if not isinstance(type, EventType):
             raise ValueError("Type must be an instance of EventType")
         self.m_id = id
@@ -36,6 +41,7 @@ class Event:
         self.m_timestamp = timestamp
         self.m_duration = duration
         self.m_mem = mem
+        self.m_resource_type = resource_type
     
     def get_id(self):
         return self.m_id
@@ -48,6 +54,9 @@ class Event:
 
     def get_timestamp(self):
         return self.m_timestamp
+
+    def get_resource_type(self):
+        return self.m_resource_type
 
     def set_timestamp(self, timestamp):
         if not isinstance(timestamp, (int, float)):
@@ -130,8 +139,8 @@ A forward-backward event.
 '''
 class FwdBwdEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
-                stage_id, microbatch_id, chunk_id, mem = NoneMem):
-        super().__init__(id, type, name, timestamp, duration, mem)
+                stage_id, microbatch_id, chunk_id, mem = NoneMem, resource_type = ResourceType.GPU):
+        super().__init__(id, type, name, timestamp, duration, mem = mem, resource_type = resource_type)
         if not (type == EventType.FWD or type == EventType.BWD or type == EventType.WGT):
             raise ValueError("FwdBwdEvent's Type must be FWD or BWD or WGT")
         self.m_stage_id = stage_id
@@ -153,24 +162,22 @@ A offloading-reloading event.
 '''
 class OffReLoadEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
-                load_ratio, load_type, 
-                stage_id, microbatch_id, chunk_id, mem = NoneMem,):
-        super().__init__(id, type, name, timestamp, duration, mem)
+                load_ratio, resource_type,
+                stage_id, microbatch_id, chunk_id, mem = NoneMem):
+        super().__init__(id, type, name, timestamp, duration, mem, resource_type = resource_type)
+
         if not (type == EventType.OFFL or type == EventType.REL):
             raise ValueError("OffReLoadEvent's Type must be OFFL or REL")
-        if not isinstance(load_type, LoadType):
-            raise ValueError("load_type must be an instance of LoadType")
+        if not isinstance(resource_type, ResourceType):
+            raise ValueError("resource_type must be an instance of ResourceType")
+        
         self.m_load_ratio = load_ratio
-        self.m_load_type = load_type
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
 
     def get_load_ratio(self):
         return self.m_load_ratio
-
-    def get_load_type(self):
-        return self.m_load_type
         
     def get_stage_id(self):
         return self.m_stage_id

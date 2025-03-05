@@ -47,12 +47,23 @@ class PipeCostConfig:
             assert len(self.fwd_mem) == len(self.bwd_mem)
 
 '''
+@class PipeOffloadConfig
+'''
+@dataclass
+class PipeOffloadConfig:
+    offload_ratio: float = 0.0
+
+    def __post_init__(self):
+        assert isinstance(self.offload_ratio, (float, list)) 
+
+
+'''
 @class PPGraph
 A PPGraph is a pipeline trace.
 An event is a node in the PPGraph, and it must be FwdBwdEvent.
 '''
 class PPGraph(Trace):
-    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None):
+    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None):
         ''' 
         Basic information for pipeline parallelism 
         '''
@@ -75,6 +86,13 @@ class PPGraph(Trace):
                 
             if isinstance(cost_config.fwd_mem, list):
                 assert len(cost_config.fwd_time) == len(cost_config.fwd_mem) == len(cost_config.bwd_mem)
+
+        # Offloading
+        if offload_config != None:
+            self.m_offload == True
+        else:
+            self.m_offload = False
+        self.m_offload_config = offload_config
 
 
         '''
