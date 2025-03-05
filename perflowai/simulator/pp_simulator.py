@@ -2,7 +2,7 @@
 @module pipeline parallel simulator
 '''
 
-from ..core import PPTrace
+from ..core import PPTrace, ResourceType
 from .simulator import Simulator
 
 from enum import Enum
@@ -74,6 +74,7 @@ class PPSimulator(Simulator):
         self.m_nstages = ppgraph.get_nstages()
         self.m_nmicrobatches = ppgraph.get_nmicrobatches()
         self.m_nchunks = ppgraph.get_nchunks()
+        self.m_resource_types = [ResourceType.GPU, ResourceType.G2C_PCIE, ResourceType.C2G_PCIE]
 
     def simulate(self):
         nodes = self.m_graph.get_nodes()
@@ -95,8 +96,14 @@ class PPSimulator(Simulator):
         # A list for event that is completed
         completed_event_ids = dict()
 
-        # Store the current timestamp of each stage
-        current_timestamps = [0 for _ in range(self.m_nstages)]
+        # Store the current timestamp of each resource on each stage
+        # current_timestamps = [0 for _ in range(self.m_nstages)]
+        current_timestamps = [dict() for _ in range(self.m_nstages)]
+        # Initialize
+        for stage_id in range(self.m_nstages):
+            current_stage_timestamps = current_timestamps[stage_id]
+            for rsc in self.m_resource_types:
+                current_stage_timestamps[rsc] = 0
 
         # Store the event execution trace
         pptrace = PPTrace(self.m_nstages, self.m_nstages, self.m_nmicrobatches, self.m_nchunks)
@@ -138,6 +145,7 @@ class PPSimulator(Simulator):
             print(f"Executing {current_event.get_name()} (ID: {current_event.get_id()}) on stage {current_event.get_stage_id()}...")  
             
             stage = current_event.get_stage_id()
+            resource = current_event.get_resource_type()
 
             '''
             2.2.1 CALCULATE THE START AND END TIMESTAMP
@@ -147,7 +155,7 @@ class PPSimulator(Simulator):
                 # The start timestamp should be after the latest compeletion time of events with in edge dependence
                 start_timestamp = max(list(map(lambda x : completed_event_ids[x].get_timestamp() + completed_event_ids[x].get_duration(), in_data_deps[current_event_id])))
                 # The start timestamp should also be after the latest compeletion time of executed events on current stage/device
-                start_timestamp = max(start_timestamp, current_timestamps[stage])
+                start_timestamp = max(start_timestamp, current_timestamps[stage][resource])
             
             complete_time = start_timestamp + current_event.get_duration()
 
@@ -160,7 +168,7 @@ class PPSimulator(Simulator):
 
             # Update the list of completed events, and the timestamps of each stages
             completed_event_ids[current_event_id] = current_event
-            current_timestamps[stage] = complete_time
+            current_timestamps[stage][resource] = complete_time
 
             # Update the output trace
             pptrace.add_event(stage,current_event)
