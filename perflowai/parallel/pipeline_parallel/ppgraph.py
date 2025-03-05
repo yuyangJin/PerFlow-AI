@@ -54,7 +54,9 @@ class PipeOffloadConfig:
     offload_ratio: float = 0.0
 
     def __post_init__(self):
-        assert isinstance(self.offload_ratio, (float, list)) 
+        assert isinstance(self.offload_ratio, (float, list))
+        if isinstance(self.offload_ratio, float):
+            assert self.offload_ratio >= 0.0 and  self.offload_ratio <= 1.0
 
 
 '''
