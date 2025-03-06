@@ -53,6 +53,7 @@ class TraceVisiualizer(FlowNode):
 
         ndevs = 0
         devs = []
+        exist_type = []
         first_time = 9223372036854775807
         last_time = 0
         max_chk = 1
@@ -66,10 +67,14 @@ class TraceVisiualizer(FlowNode):
                     last_time = max(last_time, e.m_timestamp + e.m_duration)
                     max_chk = max(max_chk, e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0)
                     time_per_unit = min(time_per_unit, (e.m_duration / (len(e.m_name) * FONT_SIZE * 0.3)))
+                    if e.m_type not in exist_type:
+                        exist_type.append(e.m_type)
 
         data_width = (last_time - first_time + time_per_unit - 1) // time_per_unit + TAIL
         
         data_height = SPAN_HEIGHT * ndevs + BORDER_SIZE * (ndevs + 1)
+        if EventType.OFFL in exist_type:
+            data_height = data_height * 3
 
         color_text_row_height = int(SPAN_HEIGHT * 1.6)
         color_text_height = int(SPAN_HEIGHT * 1.6) + BORDER_SIZE
@@ -82,7 +87,6 @@ class TraceVisiualizer(FlowNode):
 
         d = draw.Drawing(canvas_width, canvas_height, origin="top-left")
 
-        exist_type = []
 
         def get_color(typ, chk = 0):
             #COLOR_VALUE_MAP
@@ -97,6 +101,10 @@ class TraceVisiualizer(FlowNode):
                 c = np.array([255, 217, 102])
             elif typ == EventType.OPRT:
                 c = np.array([255, 217, 102])
+            elif typ == EventType.OFFL:
+                c = np.array([227, 189, 152])
+            elif typ == EventType.REL:
+                c = np.array([198, 157, 225])
             else:
                 raise ValueError("Type must be an instance of EventType")
             
@@ -153,22 +161,33 @@ class TraceVisiualizer(FlowNode):
         def draw_device_title(oy, ox):
             for it, i in enumerate(devs):
                 h = it * SPAN_HEIGHT + (it + 1) * BORDER_SIZE
+                if EventType.OFFL in exist_type:
+                    h = h * 3
                 plot_text(oy + h, ox + 6 * SCALE_FACTOR, "Device {}".format(i), "left")
         
         def draw_data(oy, ox):
             for it, i in enumerate(devs):
                 h = it * SPAN_HEIGHT + (it + 1) * BORDER_SIZE
+                lh = SPAN_HEIGHT + BORDER_SIZE
+                if EventType.OFFL in exist_type:
+                    h = h * 3
+                    lh = lh * 3
+                
                 dev_events = self.trace.get_events(i)
                 for e in dev_events:
                     start = BORDER_SIZE + (e.m_timestamp - first_time) // time_per_unit
                     duration = e.m_duration // time_per_unit
                     center = start + duration // 2
-                    if e.m_type not in exist_type:
-                        exist_type.append(e.m_type)
-                    plot_rect(oy + h, ox + start, SPAN_HEIGHT, duration, get_color(e.m_type, (e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0)))
-                    plot_rect_frame(oy + h - BORDER_SIZE, ox + start, SPAN_HEIGHT + BORDER_SIZE, duration)
-                    plot_text(oy + h + SPAN_HEIGHT / 5, ox + center, e.m_name, font_scale=0.6, fill='black')
-                plot_line(oy + h + SPAN_HEIGHT, ox, oy + h + SPAN_HEIGHT, ox + data_width -1)
+
+                    bh = 0
+                    if e.m_type == EventType.OFFL:
+                        bh = SPAN_HEIGHT + BORDER_SIZE
+                    elif e.m_type == EventType.REL:
+                        bh = (SPAN_HEIGHT + BORDER_SIZE)*2
+                    plot_rect(oy + h + bh, ox + start, SPAN_HEIGHT, duration, get_color(e.m_type, (e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0)))
+                    plot_rect_frame(oy + h + bh - BORDER_SIZE, ox + start, SPAN_HEIGHT + BORDER_SIZE, duration)
+                    plot_text(oy + h + bh + SPAN_HEIGHT / 5, ox + center, e.m_name, font_scale=0.6, fill='black')
+                plot_line(oy + h + lh, ox, oy + h + lh, ox + data_width -1)
 
         def draw_info(oy, ox, types):
             div = 2 + len(types)
