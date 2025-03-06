@@ -2,7 +2,7 @@
 test Visualize the simulated trace of Interleaved1F1B
 '''
 
-from perflowai.parallel.pipeline_parallel import PipeCostConfig, Interleaved1F1BGraph 
+from perflowai.parallel.pipeline_parallel import PipeCostConfig, PipeOffloadConfig, Interleaved1F1BGraph 
 from perflowai.simulator import PPSimulator, PipeType
 from perflowai.visualizer import TraceVisiualizer
 
@@ -28,6 +28,28 @@ def test_Interleaved1F1B_Simulate_Visualize():
 
     for i in range(trace.get_nstages()):
         assert str(trace.get_events(i)) == stage_events_str[i]
+
+    visualizer = TraceVisiualizer(trace)
+    visualizer.visualize()
+
+
+def test_offload_Interleaved1F1B_Simulate_Visualize():
+    g = Interleaved1F1BGraph(4, 8, 2, cost_config = PipeCostConfig(
+        fwd_time = 1000,
+        bwd_time = 2000,
+        wgt_time = 0
+    ), offload_config = PipeOffloadConfig(offload_ratio = 0.5))
+    g.build_graph()
+
+    sim = PPSimulator(PipeType.Interleaved1F1B, g)
+    trace = sim.run()
+
+    #assert trace.get_nstages() == 4
+    #assert trace.get_nmicrobatches() == 12
+    #assert trace.get_nchunks() == 2
+
+    #for i in range(trace.get_nstages()):
+    #    assert str(trace.get_events(i)) == stage_events_str[i]
 
     visualizer = TraceVisiualizer(trace)
     visualizer.visualize()
