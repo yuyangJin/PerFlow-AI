@@ -83,8 +83,8 @@ class Interleaved1F1BGraph(PPGraph):
                         next_fwd_mb, next_fwd_chk = self.__compute_mb_and_chk(cur_fwd_minib_id+1)
                         src_id = cur_fwd_graph_id
                         dest_id = self.get_event_id(EventType.FWD, stage, next_fwd_mb, next_fwd_chk)
-
-                        self.add_edge(src_id, dest_id)
+                        if 0 <= next_fwd_mb < self.m_nmicrobatches and 0 <= next_fwd_chk < self.m_nchunks:
+                            self.add_edge(src_id, dest_id)
                         # print_dep(0, stage, mb, chk, 0, stage, next_fwd_mb, next_fwd_chk)
 
                         # Inter-stage F dependence (the last stage do not need)
@@ -239,12 +239,14 @@ class Interleaved1F1BGraph(PPGraph):
                                 pre2_fwd_minib_id = cur_bwd_minib_id + n_warmup_minibs - 1
                                 pre2_fwd_mb, pre2_fwd_chk = self.__compute_mb_and_chk(pre2_fwd_minib_id)
                                 pre2_fwd_event_id = self.get_event_id(EventType.FWD, stage, pre2_fwd_mb, pre2_fwd_chk)
-                                self.add_edge(pre2_fwd_event_id, rel_event_id)
+                                if 0 <= pre2_fwd_mb < self.m_nmicrobatches and 0 <= pre2_fwd_chk < self.m_nchunks:
+                                    self.add_edge(pre2_fwd_event_id, rel_event_id)
                             else:
                                 pre2_bwd_minib_id = cur_bwd_minib_id - 2
                                 pre2_bwd_mb, pre2_bwd_chk = self.__compute_mb_and_chk(pre2_bwd_minib_id)
                                 pre2_bwd_event_id = self.get_event_id(EventType.BWD, stage, pre2_bwd_mb, self.m_nchunks - pre2_bwd_chk - 1)
-                                self.add_edge(pre2_bwd_event_id, rel_event_id)
+                                if 0 <= pre2_bwd_mb < self.m_nmicrobatches and 0 <= pre2_bwd_chk < self.m_nchunks:
+                                    self.add_edge(pre2_bwd_event_id, rel_event_id)
 
 
 
