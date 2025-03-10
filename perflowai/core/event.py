@@ -139,13 +139,14 @@ A forward-backward event.
 '''
 class FwdBwdEvent(Event):
     def __init__(self, id, type, name, timestamp, duration, 
-                stage_id, microbatch_id, chunk_id, mem = NoneMem, resource_type = ResourceType.GPU):
+                stage_id, microbatch_id, chunk_id, mem = NoneMem, resource_type = ResourceType.GPU, recompute_mask = None):
         super().__init__(id, type, name, timestamp, duration, mem = mem, resource_type = resource_type)
         if not (type == EventType.FWD or type == EventType.BWD or type == EventType.WGT):
             raise ValueError("FwdBwdEvent's Type must be FWD or BWD or WGT")
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
+        self.m_recompute_mask = recompute_mask
 
     def get_stage_id(self):
         return self.m_stage_id
@@ -155,6 +156,24 @@ class FwdBwdEvent(Event):
 
     def get_chunk_id(self):
         return self.m_chunk_id
+    
+    '''
+    @func recompute()
+    recompute or not recompute
+    '''
+    def recompute(self):
+        if self.m_recompute_mask == None:
+            return False
+        else:
+            return True
+    
+    '''
+    @func get_recompute_mask()
+    Recompute mask is a list of 0 or 1, representing the the compute flag of each layer.
+    Thus, the number of the list should be equal to the number of layers. 
+    '''
+    def get_recompute_mask(self):
+        return self.m_recompute_mask
 
 '''
 @class OffReLoadEvent
