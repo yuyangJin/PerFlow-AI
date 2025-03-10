@@ -3,88 +3,159 @@
 ' The core of PerFlow-AI is the trace, 
 ' which flows through the workflow diagram
 namespace core{
-    ' Different event types
-    enum EventType{
-        OPRT 
-        COMM
-        FWD
-        BWD
-        WGT
+
+    namespace event{
+        ' Different event types
+        enum EventType{
+            "Different event types"
+
+            OPRT 
+            COMM
+            FWD
+            BWD
+            WGT
+            OFL
+            REL
+        }
+
+        enum ResourceType{
+            "Used resource"
+
+            NONE
+            G2C_PCIE
+            C2G_PCIE
+            G2C_NVLK
+            C2G_NVLK
+            G2G_NVLK
+            G2G_DRCT
+            GPU
+            CPU
+        }
+
+        ' Basic event class
+        class Event{
+            "Basic event class"
+
+            - m_id: int
+            - m_type: EventType
+            - m_name: string
+            - m_timestamp: int
+            - m_duration: int
+            - m_mem: float
+            - m_resource_type: ResourceType
+
+            + get_id()
+            + get_name()
+            + get_type()
+            + set_timestamp()
+            + get_timestamp()
+            + get_resource_type()
+            + set_duration()
+            + get_duration(int/float duration)
+            + set_mem()
+            + get_mem()
+            - get_info_str()
+            - __str__()
+            - __repr__()
+            - __eq__(Event other)
+        }
+
+        ' Event class for operators (single device operator)
+        class OprtEvent{
+            "Event class for operators,
+            single device operator"
+        }
+
+        ' Event class for communications, 
+        ' including devcie-to-device, device-to-cpu, inter-node 
+        class CommEvent{
+            "Event class for communications, 
+            including devcie-to-device, 
+            device-to-cpu, inter-node"
+        }
+
+        ' Event class for pipeline-level forward/backward events
+        class FwdBwdEvent{
+            "Event class for pipeline-level 
+            forward/backward events"
+
+            - m_stage_id: int 
+            - m_microbatch_id: int
+            - m_chunk_id: int
+            - m_recompute_mask
+
+            + get_stage_id()
+            + get_microbatch_id()
+            + get_chunk_id()
+            + recompute()
+            + get_recompute_mask()
+        }
+
+        ' Event class for pipeline-level offloading and reloading events
+        class OffReLoadEvent{
+            "Event class for pipeline-level 
+            offloading and reloading events
+            (Maybe this class should be merged
+            into FwdBwdEvent)"
+
+            - m_load_ratio: float
+            - m_stage_id: int 
+            - m_microbatch_id: int
+            - m_chunk_id: int
+
+            + get_load_ratio()
+            + get_stage_id()
+            + get_microbatch_id()
+            + get_chunk_id()
+        }
+
+        OprtEvent .down.|> Event
+        CommEvent .down.|> Event
+        FwdBwdEvent .left.|> Event
+        OffReLoadEvent .right.|> Event
     }
 
-    ' Basic event class
-    class Event{
-        - m_id: int
-        - m_type: EventType
-        - m_name: string
-        - m_timestamp: int
-        - m_duration: int
+    namespace trace {
+        ' Basic trace class
+        class Trace{
+            "Basic trace class"
+            - m_ndevs: int
+            ' m_events is a Dict<int, list<Event>>, the key is the device id and value is a Event list
+            - m_events: dict<int, list<Event>>
 
-        + get_id()
-        + get_name()
-        + get_type()
-        + get_timestamp()
-        + set_duration()
-        + get_duration(int/float duration)
-        - get_info_str()
-        - __str__()
-        - __repr__()
+            + get_ndevs()
+            + add_event()
+            ' How to search a specific event?
+            + get_event() 
+            + get_events(int stage_id)
+            + output()
+        }
+
+        Trace -up- Event
+
+        ' Trace class for pipeline-level events
+        ' The event type is FWD/BWD/WGT, and each event has no timestamp
+        class PPTrace{
+            "Trace class for pipeline-level events
+            The event type is FWD/BWD/WGT/OFLD/RLD, 
+            and each event has no timestamp"
+            - m_nstages: int
+            - m_nmicrobatches: int
+            - m_nchunks: int
+
+            + get_nstages()
+            + get_nmicrobatches()
+            + get_nchunks()
+            ' Should this function be moved to a memory simulator?
+            + get_memory_footprint()
+        }
+        FwdBwdEvent -up-* PPTrace
+        PPTrace -right-|> Trace
     }
-
-    ' Event class for operators (single device operator)
-    class OprtEvent{}
-
-    ' Event class for communications, 
-    ' including devcie-to-device, device-to-cpu, inter-node 
-    class CommEvent{}
-
-    ' Event class for pipeline-level events
-    class FwdBwdEvent{
-        - stage_id: int 
-        - microbatch_id: int
-        - chunk_id: int
-
-        + get_stage_id()
-        + get_microbatch_id()
-        + get_chunk_id()
-    }
-
-    OprtEvent .up.|> Event
-    CommEvent .up.|> Event
-    FwdBwdEvent .left.|> Event
-
-    ' Basic trace class
-    class Trace{
-        - m_ndevs: int
-        ' m_events is a Dict<int, list<Event>>, the key is the device id and value is a Event list
-        - m_events: dict<int, list<Event>>
-
-        + get_ndevs()
-        + add_event()
-        ' How to search a specific event?
-        + get_event() 
-        + get_events(int stage_id)
-    }
-
-    Trace -down- Event
-
-    ' Trace class for pipeline-level events
-    ' The event type is FWD/BWD/WGT, and each event has no timestamp
-    class PPTrace{
-        - m_nstages: int
-        - m_nmicrobatches: int
-        - m_nchunks: int
-
-        + get_nstages()
-        + get_nmicrobatches()
-        + get_nchunks()
-    }
-    FwdBwdEvent -up-* PPTrace
-    PPTrace -right-|> Trace
 }
 
 
-namespace flow{
+namespace workflow{
     interface FlowNode{
         -m_name: string
         -m_id: int
@@ -100,22 +171,45 @@ namespace flow{
         +run()
     }
     class FlowGraph{
+        "A representation of workflow. 
+        The data dependence, workload are annotated,
+        searching parallism opportunity."
+
         ' Dict<int, FlowNode> m_nodes
         ' The key is the node id, the value is the node.
-        +nodes: dict<int, FlowNode> 
+        - nodes: dict<int, FlowNode> 
         ' The key is the source node id, 
         ' the value is a List of the destination node ids.
-        +edges: dict<int, list<int>>>
+        - edges: dict<int, list<int>>>
         
-        +add_node(FlowNode)
-        +add_edge(FlowNode src, FlowNode dst)
-        +get_node_by_id(int id)
-        +get_next_nodelist_by_id(int id)
-        +check()
-        +run()
+        + add_node(FlowNode)
+        + add_edge(FlowNode src, FlowNode dst)
+        + get_node_by_id(int id)
+        + get_next_nodelist_by_id(int id)
+        + check()
+        + show()
+        + run()
 
     }
     FlowNode --* FlowGraph 
+}
+
+namespace trace_op {
+    class TraceConverter{
+
+    }
+
+    class TraceMerger {
+        + merge(list<Graph>, list<int> stage_list)
+    }
+
+    class TraceFilter{
+        - filter_pp()
+        + filter(Graph graph, list<int> stage_list)
+    }
+    TraceConverter .down.|> FlowNode
+    TraceMerger .down.|> FlowNode
+    TraceFilter .down.|> FlowNode
 }
 
 namespace reader {
@@ -127,11 +221,15 @@ namespace reader {
         + getTrace()
     }   
 
-        class TorchProfilerTraceReader{
+    class TorchProfilerTraceReader{
+        "Read the trace collected by torch profiler"
 
+        + read()
     }
-
+    TraceReader .down.|> FlowNode
+    Trace -down- TraceReader
     TorchProfilerTraceReader -up-|> TraceReader
+
 }
 
 namespace analyzer{
@@ -141,27 +239,185 @@ namespace analyzer{
         + __init__()
         + analyze()
     }
+    TraceAnalyzer .down.|> FlowNode
+    Trace -down- TraceAnalyzer
 }
 
 namespace visualizer{
-    class TraceVisualizer{}
+    class TraceVisualizer{
+        "Visualize the timeline of trace"
+        
+        + visualize()
+        + run()
+    }
+    class MemoryFootprintVisualizer{
+        "Visualize the memory foorprint of trace"
+
+        + visualize()
+        +run()
+    }
+    TraceVisualizer .down.|> FlowNode
+    Trace -down- TraceVisualizer
+    Trace -down- MemoryFootprintVisualizer
 }
 
-TraceReader .left.|> FlowNode
-TraceAnalyzer .left.|> FlowNode
-TraceVisualizer .left.|> FlowNode
-
-Trace -right- TraceReader
-Trace -right- TraceVisualizer
-Trace -right- TraceAnalyzer
 
 
+
+
+
+
+namespace parallel {
+
+    namespace pipeline_parallel {
+          '/ PPGraph: FwdBwdEvent (w/o. timestamp) -> Node, pipeline streams -> Graph /'
+        class PPGraph{
+            "Graph representation of a pipeline parallel"
+
+            - m_nstages: int
+            - m_nmicrobatches: int
+            - m_nchunks: int
+            - m_nnodes: int
+            - m_nodes: dict<int, FwdBwdEvent>
+            - m_in_edges: dict
+            - m_out_edges: dict
+            - event_types: List<EventType>
+
+            + get_event_id()
+            + get_event_types()
+            + get_event_name()
+            + get_nstages()
+            + get_nchunks()
+            + get_nmicrobatches()
+            + add_node()
+            + add_edge()
+            + get_nodes()
+            + get_in_edges()
+            + get_out_edges()
+            + check()
+            + output()
+            + generate_nodes()
+        }
+
+        class GPipeGraph{
+            "Graph representation of GPipe"
+
+            + build_graph()
+        }
+
+        class PipeDreamGraph{
+            "Graph representation of PipeDream"
+
+            - __compute_num_warmup_micro_batches()
+            + build_graph()
+        }
+
+        class Interleaved1F1BGraph{
+            "Graph representation of Interleaved 1F1B"
+
+            - __compute_minib_id()
+            - __compute_mb_and_chk()
+            + build_graph()
+        }
+
+        class ZeroBubbleGraph{
+            "Graph representation of ZeroBubble"
+
+            + generate_nodes()
+            + build_graph()
+
+        }
+        
+        GPipeGraph -down-|> PPGraph
+        PipeDreamGraph -down-|> PPGraph
+        Interleaved1F1BGraph -down-|> PPGraph
+        ZeroBubbleGraph -down-|> PPGraph
+
+
+        ' PPGraph -down-|> Trace
+        PPGraph -up- FwdBwdEvent : The FwdBwdEvent in PPGraph has no timestamp
+
+
+        Enum PipeType{
+            GPipe
+            PipeDream
+            Interleaved1F1B
+            ZeroBubble
+            Customized
+        }
+
+        PipeType -right- PPGraph
+
+
+        class PipeConfig{
+            - edges: list<pair<src, dst>>
+
+            + getEdges(file_name)
+        }
+
+        PipeConfig -right-* PPGraph
+
+        Enum PipePartitionType{
+            Balanced
+            Customized
+        }
+
+        PipePartitionType -left- PPGraph
+
+        class PipePartitionConfig{
+            - plan: dict<stage_id, nlayers>
+
+            + getPlan(file_name)
+        }
+
+        PipePartitionConfig -left-* PPGraph
+
+        class PipeCostConfig{
+            + fwd_time: int
+            + bwd_time: int
+            + wgt_time: int
+            + comm_time: int
+            + fwd_mem: float
+            + bwd_mem: float
+            + wgt_mem: float
+
+            - __post_init__()
+        }
+        PipeCostConfig -up-* PPGraph
+
+        class PipeOffloadConfig{
+            + offload_ratio: float
+
+            - __post_init__()
+        }
+        PipeOffloadConfig -up-* PPGraph
+
+        class PipeRecomputeConfig{
+            + recompute_mask: list<list<int>>
+
+            - __post_init__()
+        }
+        PipeRecomputeConfig -up-* PPGraph
+    }
+    namespace dptp{   
+
+        class DPGraph{}
+        class TPGraph{}
+        class TPDPGraph{}
+
+        DPGraph -up-|> Trace
+        TPGraph -up-|> Trace
+        TPDPGraph -up-|> Trace
+
+    }
+
+}
 
 namespace simulator {
 
     class Simulator{}
 
-    Simulator ..|> FlowNode
+    Simulator .down.|> FlowNode
 
     namespace oprt {
         class OprtSimulator{}
@@ -175,104 +431,28 @@ namespace simulator {
 
     namespace pipeline{
 
-        namespace pipeline_repr{
-            '/ PPGraph: FwdBwdEvent (w/o. timestamp) -> Node, pipeline streams -> Graph /'
-            class PPGraph{
-                - m_nstages: int
-                - m_nmicrobatches: int
-                - m_nchunks: int
-                - m_nnodes: int
-                - m_nodes: dict<int, FwdBwdEvent>
-
-                + getNodeId()
-                + addNodes()
-                + addEdge()
-                + generateNodes()
-            }
-
-            class GPipeGraph{
-                + buildGraph()
-            }
-
-            class PipeDreamGraph{
-                + buildGraph()
-            }
-
-            class Interleaved1F1BGraph{
-                + buildGraph()
-            }
-            
-            GPipeGraph -down-|> PPGraph
-            PipeDreamGraph -down-|> PPGraph
-            Interleaved1F1BGraph -down-|> PPGraph
+        class PPSimulator{
+            "Simulate the trace based on PPGraph"
+            - m_graph: PPGraph
+            - m_pipe_type: PipeType
+            - m_pipe_config: PipeConfig
+            - m_nstages: int
+            - m_nmicrobatches: int
+            - m_nchunks: int 
+            - m_resource_types: ResourceType
 
 
-            ' PPGraph -down-|> Trace
-            PPGraph -down- FwdBwdEvent : The FwdBwdEvent in PPGraph has no timestamp
+            + __init__()
+            + simulate()
+            + run()
         }
-
-            Enum PipeType{
-                GPipe
-                PipeDream
-                Interleaved1F1B
-                ZeroBubble
-                Customized
-            }
-
-            Enum PipePartitionType{
-                Balanced
-                Customized
-            }
-
-
-
-            class PipeConfig{
-                - edges: list<pair<src, dst>>
-
-                + getEdges(file_name)
-            }
-
-            class PipePartitionConfig{
-                - plan: dict<stage_id, nlayers>
-
-                + getPlan(file_name)
-            }
-
-            class PPSimulator{
-                - m_pipe_type: PipeType
-                - m_pipe_config: PipeConfig
-
-                - m_pipe_partition: PipePartitionType
-                - m_pipe_partition_config: PipePartitionConfig
-
-
-                + __init__()
-                + generateTrace()
-            }
-
-            PipeType -down- PPSimulator
-            PipeConfig -down-* PPSimulator
-
-            PipePartitionType -down- PPSimulator
-            PipePartitionConfig -down-* PPSimulator
-
-
-     
-
+        PPSimulator -down-|> Simulator
+        PPSimulator -left-* PPGraph
+        PPSimulator *-left- PPTrace
     }
 
     namespace dptp{    
         
-        namespace dptp_repr{
-            class DPGraph{}
-            class TPGraph{}
-            class TPDPGraph{}
-
-            DPGraph -down-|> Trace
-            TPGraph -down-|> Trace
-            TPDPGraph -down-|> Trace
-        }
-
         class DPSimulator{}
         class TPSimulator{}
 
@@ -282,14 +462,17 @@ namespace simulator {
 
         DPSimulator -down-|> Simulator
         TPSimulator -down-|> Simulator
-        PPSimulator -down-|> Simulator
+        
     }
 
+    namespace mem{
+        class MemSimulator{}
+    }
 }
 
-' }
 
-PPSimulator *-left- PPTrace
+
+
 
 
 
