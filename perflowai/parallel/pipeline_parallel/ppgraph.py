@@ -60,6 +60,33 @@ class PipeOffloadConfig:
 
 
 '''
+@class PipeRecomputeConfig
+'''
+@dataclass
+class PipeRecomputeConfig:
+    recompute_mask: list = None
+
+    def __post_init__(self):
+        assert isinstance(self.recompute_mask, list)
+        if isinstance(self.recompute_mask, list):
+            e_len = 0
+            for i in range(len(self.recompute_mask)):
+                e = self.recompute_mask[i]
+                assert isinstance(e, (int, list))
+                if isinstance(e, int):
+                    assert e in [0,1]
+                # Must be list
+                else: 
+                    # Check the length of each list element
+                    if i == 0:
+                        e_len = len(e)
+                    else:
+                        assert e_len == len(e)
+                    for ee in e:
+                        assert isinstance(ee, int) # Must be int
+                        assert ee in [0,1]
+
+'''
 @class PPGraph
 A PPGraph is a pipeline trace.
 An event is a node in the PPGraph, and it must be FwdBwdEvent.
