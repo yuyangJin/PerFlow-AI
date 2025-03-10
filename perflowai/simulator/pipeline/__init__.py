@@ -5,4 +5,4 @@
 from .pp_simulator import PPSimulator, PipeType, PipePartitionConfig
 
 
-__all__ = ['PPSimulator']
+__all__ = ['PPSimulator', 'PipeType', 'PipePartitionConfig']

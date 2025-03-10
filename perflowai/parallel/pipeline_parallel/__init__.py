@@ -5,7 +5,7 @@
 from .gpipe import GPipeGraph
 from .zerobubble import ZeroBubbleGraph, ScheduleType
 from .pipedream import PipeDreamGraph
-from .ppgraph import PPGraph, PipeCostConfig, PipeOffloadConfig
+from .ppgraph import PPGraph, PipeCostConfig, PipeOffloadConfig, PipeRecomputeConfig
 from .interleaved1f1b import Interleaved1F1BGraph
 
 __all__ = ['GPipeGraph', 
