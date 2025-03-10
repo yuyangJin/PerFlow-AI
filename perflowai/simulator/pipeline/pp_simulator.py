@@ -2,8 +2,8 @@
 @module pipeline parallel simulator
 '''
 
-from ..core import PPTrace, ResourceType
-from .simulator import Simulator
+from ...core import PPTrace, ResourceType
+from ..simulator import Simulator
 
 from enum import Enum
 from collections import deque

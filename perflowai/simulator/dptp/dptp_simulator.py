@@ -2,7 +2,7 @@
 @module data/tensor parallel simulator
 '''
 
-from .simulator import Simulator
+from ..simulator import Simulator
 
 '''
 @class DPSimulator
