@@ -39,8 +39,17 @@ def test_PipeCostConfig():
     pcc = PipeCostConfig(fwd_time = [2, 4, 6, 7, 8],
                         bwd_time = [4, 6, 7, 8, 10],
                         wgt_time = [3, 5, 7, 9, 11])
-                        
+    
     assert pcc.fwd_time == [2, 4, 6, 7, 8]
     assert pcc.bwd_time == [4, 6, 7, 8, 10]
     assert pcc.wgt_time == [3, 5, 7, 9, 11]
+    assert pcc.comm_time == 1
+    
+    pcc = PipeCostConfig(fwd_time = [[2, 4, 6, 7, 8], [2, 4, 6, 7, 8], [2, 4, 6, 7, 8]],
+                        bwd_time = [[4, 6, 7, 8, 10], [4, 6, 7, 8, 10], [4, 6, 7, 8, 10]],
+                        wgt_time = [[3, 5, 7, 9, 11], [3, 5, 7, 9, 11], [3, 5, 7, 9, 11]])
+                        
+    assert pcc.fwd_time == [[2, 4, 6, 7, 8], [2, 4, 6, 7, 8], [2, 4, 6, 7, 8]]
+    assert pcc.bwd_time == [[4, 6, 7, 8, 10], [4, 6, 7, 8, 10], [4, 6, 7, 8, 10]]
+    assert pcc.wgt_time == [[3, 5, 7, 9, 11], [3, 5, 7, 9, 11], [3, 5, 7, 9, 11]]
     assert pcc.comm_time == 1
