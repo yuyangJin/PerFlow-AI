@@ -228,26 +228,34 @@ class PPGraph(Trace):
                     for chk in range(n_chunks):
                         if type == EventType.FWD:
                             # Duration
-                            if isinstance(self.m_cost_config.fwd_time, int): # Balanced partition
+                            if isinstance(self.m_cost_config.fwd_time, int): #  global level: every event share the same duration and memory
                                 duration = self.m_cost_config.fwd_time
-                            elif isinstance(self.m_cost_config.fwd_time, list): # Imbalanced partition
+                            elif isinstance(self.m_cost_config.fwd_time[stage], int): # stage level: every event in the same stage share the same duration and memory
                                 duration = self.m_cost_config.fwd_time[stage]
+                            elif isinstance(self.m_cost_config.fwd_time[stage][chk], int): # chunk level: every event in the same chunk share the same duration and memory
+                                duration = self.m_cost_config.fwd_time[stage][chk]
                             # Memory
                             if isinstance(self.m_cost_config.fwd_mem, float):
                                 mem = self.m_cost_config.fwd_mem
-                            elif isinstance(self.m_cost_config.fwd_mem, list):
+                            elif isinstance(self.m_cost_config.fwd_mem[stage], float):
                                 mem = self.m_cost_config.fwd_mem[stage]
+                            elif isinstance(self.m_cost_config.fwd_mem[stage][chk], float):
+                                mem = self.m_cost_config.fwd_mem[stage][chk]
                         elif type == EventType.BWD:
                             # Duration
-                            if isinstance(self.m_cost_config.bwd_time, int): # Balanced partition
+                            if isinstance(self.m_cost_config.bwd_time, int):
                                 duration = self.m_cost_config.bwd_time
-                            elif isinstance(self.m_cost_config.bwd_time, list): # Imbalanced partition
+                            elif isinstance(self.m_cost_config.bwd_time[stage], int):
                                 duration = self.m_cost_config.bwd_time[stage]
+                            elif isinstance(self.m_cost_config.bwd_time[stage][chk], int):
+                                duration = self.m_cost_config.bwd_time[stage][chk]
                             # Memory
                             if isinstance(self.m_cost_config.bwd_mem, float):
                                 mem = self.m_cost_config.bwd_mem
-                            elif isinstance(self.m_cost_config.bwd_mem, list):
+                            elif isinstance(self.m_cost_config.bwd_mem[stage], float):
                                 mem = self.m_cost_config.bwd_mem[stage]
+                            elif isinstance(self.m_cost_config.bwd_mem[stage][chk], float):
+                                mem = self.m_cost_config.bwd_mem[stage][chk]
                         elif type == EventType.WGT:
                             continue
                         else:
