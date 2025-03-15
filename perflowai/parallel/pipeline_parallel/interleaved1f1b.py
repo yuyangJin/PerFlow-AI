@@ -157,10 +157,16 @@ class Interleaved1F1BGraph(PPGraph):
             n_microbatches = self.get_nmicrobatches()
             n_chunks = self.get_nchunks()
             events = self.get_nodes()
-            ratio = self.m_offload_config.offload_ratio
+            ratio = 0.0
             for stage in range(n_stages):
                 for mb in range(n_microbatches):
                     for chk in range(n_chunks):
+                        if isinstance(self.m_offload_config.offload_ratio, float):
+                            ratio = self.m_offload_config.offload_ratio
+                        elif isinstance(self.m_offload_config.offload_ratio[stage], float):
+                            ratio = self.m_offload_config.offload_ratio[stage]
+                        elif isinstance(self.m_offload_config.offload_ratio[stage][chk], float):
+                            ratio = self.m_offload_config.offload_ratio[stage][chk]
                         #get related fwd & bwd event
                         fwd_event_id = self.get_event_id(EventType.FWD, stage, mb, chk)
                         fwd_event = events[fwd_event_id]
