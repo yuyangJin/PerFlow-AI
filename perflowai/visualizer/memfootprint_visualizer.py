@@ -24,6 +24,8 @@ class MemoryFootprintVisualizer(FlowNode):
 
             # Unzip the time and memory usage for plotting  
             times, memory_levels = zip(*memory_usage)
+            base_memory = 0 if base == None else base[stage_id]
+            memory_levels = [memory + base_memory for memory in memory_levels]
 
             peak.append(max(memory_levels))
 
