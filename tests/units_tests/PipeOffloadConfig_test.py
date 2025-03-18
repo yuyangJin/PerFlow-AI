@@ -11,3 +11,9 @@ def test_PipeOffloadConfig():
     
     poc = PipeOffloadConfig(offload_ratio = 0.5)
     assert poc.offload_ratio == 0.5
+
+    poc = PipeOffloadConfig(offload_ratio = [0.5, 0.5])
+    assert poc.offload_ratio == [0.5, 0.5]
+
+    poc = PipeOffloadConfig(offload_ratio = [[0.5, 0.5], [0.5, 0.5], [0.5, 0.5]])
+    assert poc.offload_ratio ==  [[0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]
