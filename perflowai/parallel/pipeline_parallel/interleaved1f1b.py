@@ -87,12 +87,12 @@ class Interleaved1F1BGraph(PPGraph):
                             self.add_edge(src_id, dest_id)
                         # print_dep(0, stage, mb, chk, 0, stage, next_fwd_mb, next_fwd_chk)
 
-                        # Inter-stage F dependence (the last stage do not need)
-                        if stage != self.m_nstages - 1: 
-                            src_id = cur_fwd_graph_id
-                            dest_id = self.get_event_id(EventType.FWD, stage+1, mb, chk)
-                            self.add_edge(src_id, dest_id)
-                            # print_dep(0, stage, mb, chk, 0, stage+1, mb, chk)
+                    # Inter-stage F dependence (the last stage do not need)
+                    if stage != self.m_nstages - 1: 
+                        src_id = cur_fwd_graph_id
+                        dest_id = self.get_event_id(EventType.FWD, stage+1, mb, chk)
+                        self.add_edge(src_id, dest_id)
+                        # print_dep(0, stage, mb, chk, 0, stage+1, mb, chk)
                     
                     ### Steady 1F1B 
                     
