@@ -10,8 +10,8 @@ from ...core import EventType, FwdBwdEvent, OffReLoadEvent, NoneTimestamp, Resou
 An Interleaved1F1BGraph is a pipeline trace for Interleaved 1F1B.
 '''
 class Interleaved1F1BGraph(PPGraph):
-    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None):
-        super().__init__(nstages, nmicrobatches, nchunks, cost_config, offload_config)
+    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None, recompute_config=None):
+        super().__init__(nstages, nmicrobatches, nchunks, cost_config = cost_config, offload_config = offload_config, recompute_config = recompute_config)
 
     '''
     mb, chk -> minibatch id
