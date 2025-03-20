@@ -2,7 +2,7 @@
 @module pipeline parallel graph
 '''
 
-from ...core import EventType, FwdBwdEvent, NoneTimestamp, NoneMem, Trace
+from ...core import EventType, FwdBwdEvent, OffReLoadEvent, NoneTimestamp, NoneMem, Trace
 
 from dataclasses import dataclass
 
@@ -117,10 +117,9 @@ class PPGraph(Trace):
                 assert len(cost_config.fwd_time) == len(cost_config.fwd_mem) == len(cost_config.bwd_mem)
 
         # Offloading
+        self.m_offload = False
         if offload_config != None:
             self.m_offload == True
-        else:
-            self.m_offload = False
         self.m_offload_config = offload_config
 
 
@@ -267,6 +266,66 @@ class PPGraph(Trace):
                                       duration = duration, 
                                       chunk_id = chk, 
                                       mem = mem)
+        
+        if self.m_offload:
+            ratio = 0.0
+            for stage in range(n_stages):
+                for mb in range(n_microbatches):
+                    for chk in range(n_chunks):
+                        if (not stage == n_stages - 1) or (not chk == n_chunks - 1):
+                            # duration
+                            if isinstance(self.m_cost_config.fwd_time, int): #  global level: every event share the same duration and memory
+                                duration = self.m_cost_config.fwd_time
+                            elif isinstance(self.m_cost_config.fwd_time[stage], int): # stage level: every event in the same stage share the same duration and memory
+                                duration = self.m_cost_config.fwd_time[stage]
+                            elif isinstance(self.m_cost_config.fwd_time[stage][chk], int): # chunk level: every event in the same chunk share the same duration and memory
+                                duration = self.m_cost_config.fwd_time[stage][chk]
+                            # Memory
+                            if isinstance(self.m_cost_config.fwd_mem, float):
+                                mem = self.m_cost_config.fwd_mem
+                            elif isinstance(self.m_cost_config.fwd_mem[stage], float):
+                                mem = self.m_cost_config.fwd_mem[stage]
+                            elif isinstance(self.m_cost_config.fwd_mem[stage][chk], float):
+                                mem = self.m_cost_config.fwd_mem[stage][chk]
+                            # ratio
+                            if isinstance(self.m_offload_config.offload_ratio, float):
+                                ratio = self.m_offload_config.offload_ratio
+                            elif isinstance(self.m_offload_config.offload_ratio[stage], float):
+                                ratio = self.m_offload_config.offload_ratio[stage]
+                            elif isinstance(self.m_offload_config.offload_ratio[stage][chk], float):
+                                ratio = self.m_offload_config.offload_ratio[stage][chk]
+                            '''
+                                Offload
+                            '''
+                            #Get event id
+                            offl_event_id = self.get_event_id(EventType.OFFL, stage, mb, chk)
+                            #Get event num
+                            self.m_nnodes = self.m_nnodes + 1
+                            event_num = self.m_nnodes
+                            #Get event name
+                            event_name = 'OFFL' + ':' + str(mb) + '-' + str(chk)
+                            #Create a new offl event
+                            offl_event = OffReLoadEvent(id=event_num, type=EventType.OFFL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
+                                                    load_ratio=ratio, resource_type=ResourceType.G2C_PCIE,
+                                                    stage_id=stage, microbatch_id=mb, chunk_id=chk,
+                                                    mem = mem)
+                            self.m_nodes[offl_event_id] = offl_event
+                            '''
+                                Reload
+                            '''
+                            #Get event id
+                            rel_event_id = self.get_event_id(EventType.REL, stage, mb, chk)
+                            #Get event num
+                            self.m_nnodes = self.m_nnodes + 1
+                            event_num = self.m_nnodes
+                            #Get event name
+                            event_name = 'REL' + ':' + str(mb) + '-' + str(chk)
+                            #Create a new rel event
+                            rel_event = OffReLoadEvent(id=event_num, type=EventType.REL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
+                                                    load_ratio=ratio, resource_type=ResourceType.C2G_PCIE,
+                                                    stage_id=stage, microbatch_id=mb, chunk_id=chk,
+                                                    mem = mem)
+                            self.m_nodes[rel_event_id] = rel_event
 
     def add_edge(self, src_id, dst_id):
         '''
