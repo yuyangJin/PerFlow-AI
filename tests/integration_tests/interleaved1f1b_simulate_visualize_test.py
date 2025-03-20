@@ -71,7 +71,6 @@ def test_recompoute_Interleaved1F1B_Simulate_Visualize():
     visualizer = TraceVisiualizer(trace)
     visualizer.visualize()
 
-    assert false
 
 
 
