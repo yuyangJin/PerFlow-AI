@@ -190,10 +190,30 @@ class OffReLoadEvent(Event):
         if not isinstance(resource_type, ResourceType):
             raise ValueError("resource_type must be an instance of ResourceType")
         
-        self.m_load_ratio = load_ratio
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
+
+        self.m_load_ratio = 0.0
+        self.m_base_duration = duration
+        self.m_base_mem = mem
+        self.set_load_ratio(load_ratio)
+    
+    def calc_load_duration_mem(self, load_ratio):
+        if self.m_type == EventType.OFFL:
+            mem = -1 * self.m_base_mem * load_ratio
+        else:
+            mem = self.m_base_mem * load_ratio
+        duration = self.m_base_duration * load_ratio #TODO: Calculate the time required based on the volume and speed of data transmission.
+        return duration, mem
+    
+    def set_load_ratio(self, load_ratio, duration = None, mem = None):
+        if not self.m_load_ratio == load_ratio:
+            self.m_load_ratio = load_ratio
+            if duration == None or mem == None: #TODO: Refine the methods of calculating duration and mem.
+                duration, mem = self.calc_load_duration_mem(load_ratio)
+            self.set_duration(duration)
+            self.set_mem(mem)
 
     def get_load_ratio(self):
         return self.m_load_ratio
