@@ -146,7 +146,11 @@ class FwdBwdEvent(Event):
         self.m_stage_id = stage_id
         self.m_microbatch_id = microbatch_id
         self.m_chunk_id = chunk_id
-        self.m_recompute_mask = recompute_mask
+        
+        self.m_recompute_mask = 0
+        self.m_base_duration = duration
+        self.m_base_mem = mem
+        self.set_recompute_mask(recompute_mask)
 
     def get_stage_id(self):
         return self.m_stage_id
@@ -174,6 +178,25 @@ class FwdBwdEvent(Event):
     '''
     def get_recompute_mask(self):
         return self.m_recompute_mask
+    
+    def calc_recompute_duration_mem(self, recompute_mask):
+        duration = self.m_base_duration
+        mem = self.m_base_mem
+        if recompute_mask == 1:
+            mem = 0 # don't need store
+            if self.m_type != EventType.FWD:
+                duration = int(duration * 1.5) # need do fwd again
+        return duration, mem
+    
+    def set_recompute_mask(self, recompute_mask, duration = None, mem = None):
+        if recompute_mask == None or self.m_recompute_mask == recompute_mask:
+            return
+        self.m_recompute_mask = recompute_mask
+        if duration == None or mem == None: #TODO: Refine the methods of calculating duration and mem.
+            duration, mem = self.calc_recompute_duration_mem(recompute_mask)
+        self.set_duration(duration)
+        self.set_mem(mem)
+        
 
 '''
 @class OffReLoadEvent
