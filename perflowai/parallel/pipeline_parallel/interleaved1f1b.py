@@ -11,8 +11,7 @@ An Interleaved1F1BGraph is a pipeline trace for Interleaved 1F1B.
 '''
 class Interleaved1F1BGraph(PPGraph):
     def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None):
-        super().__init__(nstages, nmicrobatches, nchunks, cost_config)
-        self.m_offload_config = offload_config
+        super().__init__(nstages, nmicrobatches, nchunks, cost_config, offload_config)
 
     '''
     mb, chk -> minibatch id
@@ -150,93 +149,31 @@ class Interleaved1F1BGraph(PPGraph):
         '''
             OffReloading
         '''
-        print(self.m_offload_config)
-        if not self.m_offload_config == None:
+        if self.m_offload:
             #get basic information
             n_stages = self.get_nstages()
             n_microbatches = self.get_nmicrobatches()
             n_chunks = self.get_nchunks()
             events = self.get_nodes()
-            ratio = 0.0
             for stage in range(n_stages):
                 for mb in range(n_microbatches):
                     for chk in range(n_chunks):
-                        if isinstance(self.m_offload_config.offload_ratio, float):
-                            ratio = self.m_offload_config.offload_ratio
-                        elif isinstance(self.m_offload_config.offload_ratio[stage], float):
-                            ratio = self.m_offload_config.offload_ratio[stage]
-                        elif isinstance(self.m_offload_config.offload_ratio[stage][chk], float):
-                            ratio = self.m_offload_config.offload_ratio[stage][chk]
                         #get related fwd & bwd event
                         fwd_event_id = self.get_event_id(EventType.FWD, stage, mb, chk)
                         fwd_event = events[fwd_event_id]
                         bwd_event_id = self.get_event_id(EventType.BWD, stage, mb, chk)
                         bwd_event = events[bwd_event_id]
                         #for stage==nstages - 1 & chunk == nchunks - 1, fwd and bwd excute closely, so there is no need to offload
-                        '''
-                            Offload
-                        '''
                         if (not stage == n_stages - 1) or (not chk == n_chunks - 1):
                             '''
-                                Generate Node
+                                Offload
                             '''
-                            #Get event id
                             offl_event_id = self.get_event_id(EventType.OFFL, stage, mb, chk)
-                            #Get event num
-                            self.m_nnodes = self.m_nnodes + 1
-                            event_num = self.m_nnodes
-                            #Get event name
-                            event_name = 'OFFL' + ':' + str(mb) + '-' + str(chk)
-                            #Get duration & memory from fwd event
-                            n_warmup_minibs = (self.m_nstages * (self.m_nchunks - 1) + (self.m_nstages - stage) * 2 - 2)
-                            cur_fwd_minib_id = self.__compute_minib_id(stage, mb, chk)
-                            if cur_fwd_minib_id < n_warmup_minibs:
-                                dur = fwd_event.get_duration()
-                            else:
-                                dur = fwd_event.get_duration() + bwd_event.get_duration()
-                            mem = -1 * fwd_event.get_mem() * ratio
-                            #Create a new offl event
-                            offl_event = OffReLoadEvent(id=event_num, type=EventType.OFFL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
-                                                    load_ratio=ratio, resource_type=ResourceType.G2C_PCIE,
-                                                    stage_id=stage, microbatch_id=mb, chunk_id=chk,
-                                                    mem = mem)
-                            self.m_nodes[offl_event_id] = offl_event
-                            '''
-                                Add Dependency
-                            '''
                             self.add_edge(fwd_event_id, offl_event_id)
-                        '''
-                            Reload
-                        '''
-                        if (not stage == n_stages - 1) or (not chk == n_chunks - 1):
                             '''
-                                Generate Node
+                                Reload
                             '''
-                            #Get event id
-                            offl_event_id = self.get_event_id(EventType.OFFL, stage, mb, chk)
                             rel_event_id = self.get_event_id(EventType.REL, stage, mb, chk)
-                            #Get event num
-                            self.m_nnodes = self.m_nnodes + 1
-                            event_num = self.m_nnodes
-                            #Get event name
-                            event_name = 'REL' + ':' + str(mb) + '-' + str(chk)
-                            #Get duration & memory from fwd event
-                            n_warmup_minibs = (self.m_nstages * (self.m_nchunks - 1) + (self.m_nstages - stage) * 2 - 2)
-                            cur_bwd_minib_id = self.__compute_minib_id(stage, mb, n_chunks - chk - 1)
-                            if cur_bwd_minib_id < (self.m_nmicrobatches * self.m_nchunks - n_warmup_minibs):
-                                dur = fwd_event.get_duration() + bwd_event.get_duration()
-                            else:
-                                dur = bwd_event.get_duration()
-                            mem = fwd_event.get_mem() * ratio
-                            #Create a new offl event
-                            rel_event = OffReLoadEvent(id=event_num, type=EventType.REL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
-                                                    load_ratio=ratio, resource_type=ResourceType.C2G_PCIE,
-                                                    stage_id=stage, microbatch_id=mb, chunk_id=chk,
-                                                    mem = mem)
-                            self.m_nodes[rel_event_id] = rel_event
-                            '''
-                                Add Dependency
-                            '''
                             self.add_edge(offl_event_id, rel_event_id)
                             self.add_edge(rel_event_id, bwd_event_id)
 
@@ -253,6 +190,3 @@ class Interleaved1F1BGraph(PPGraph):
                                 pre2_bwd_event_id = self.get_event_id(EventType.BWD, stage, pre2_bwd_mb, self.m_nchunks - pre2_bwd_chk - 1)
                                 if 0 <= pre2_bwd_mb < self.m_nmicrobatches and 0 <= pre2_bwd_chk < self.m_nchunks:
                                     self.add_edge(pre2_bwd_event_id, rel_event_id)
-
-
-
