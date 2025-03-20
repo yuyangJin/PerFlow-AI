@@ -2,7 +2,7 @@
 @module pipeline parallel graph
 '''
 
-from ...core import EventType, FwdBwdEvent, OffReLoadEvent, NoneTimestamp, NoneMem, Trace
+from ...core import EventType, FwdBwdEvent, OffReLoadEvent, NoneTimestamp, NoneMem, Trace, ResourceType
 
 from dataclasses import dataclass
 
@@ -119,7 +119,7 @@ class PPGraph(Trace):
         # Offloading
         self.m_offload = False
         if offload_config != None:
-            self.m_offload == True
+            self.m_offload = True
         self.m_offload_config = offload_config
 
 
@@ -305,7 +305,7 @@ class PPGraph(Trace):
                             #Get event name
                             event_name = 'OFFL' + ':' + str(mb) + '-' + str(chk)
                             #Create a new offl event
-                            offl_event = OffReLoadEvent(id=event_num, type=EventType.OFFL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
+                            offl_event = OffReLoadEvent(id=event_num, type=EventType.OFFL, name=event_name, timestamp=NoneTimestamp, duration=duration, 
                                                     load_ratio=ratio, resource_type=ResourceType.G2C_PCIE,
                                                     stage_id=stage, microbatch_id=mb, chunk_id=chk,
                                                     mem = mem)
@@ -321,7 +321,7 @@ class PPGraph(Trace):
                             #Get event name
                             event_name = 'REL' + ':' + str(mb) + '-' + str(chk)
                             #Create a new rel event
-                            rel_event = OffReLoadEvent(id=event_num, type=EventType.REL, name=event_name, timestamp=NoneTimestamp, duration=dur, 
+                            rel_event = OffReLoadEvent(id=event_num, type=EventType.REL, name=event_name, timestamp=NoneTimestamp, duration=duration, 
                                                     load_ratio=ratio, resource_type=ResourceType.C2G_PCIE,
                                                     stage_id=stage, microbatch_id=mb, chunk_id=chk,
                                                     mem = mem)

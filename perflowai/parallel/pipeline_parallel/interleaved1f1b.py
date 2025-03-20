@@ -177,7 +177,8 @@ class Interleaved1F1BGraph(PPGraph):
                             self.add_edge(offl_event_id, rel_event_id)
                             self.add_edge(rel_event_id, bwd_event_id)
 
-
+                            n_warmup_minibs = (self.m_nstages * (self.m_nchunks - 1) + (self.m_nstages - stage) * 2 - 2)
+                            cur_bwd_minib_id = self.__compute_minib_id(stage, mb, n_chunks - chk - 1)
                             if cur_bwd_minib_id < (self.m_nmicrobatches * self.m_nchunks - n_warmup_minibs):
                                 pre2_fwd_minib_id = cur_bwd_minib_id + n_warmup_minibs - 1
                                 pre2_fwd_mb, pre2_fwd_chk = self.__compute_mb_and_chk(pre2_fwd_minib_id)
