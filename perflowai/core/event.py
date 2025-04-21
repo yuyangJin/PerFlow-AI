@@ -15,6 +15,10 @@ class EventType(Enum):
     WGT = 4
     OFFL = 5
     REL = 6
+    REQ = 7
+    SCHD = 8
+    PRF = 9
+    DCD = 10
 
 class ResourceType(Enum):
     NONE = -1
@@ -133,6 +137,10 @@ class CommEvent(Event):
         pass
 
 
+'''========================================================================'''
+'''                             Training Events                            '''
+'''========================================================================'''
+
 '''
 @class FwdBwdEvent
 A forward-backward event.
@@ -206,3 +214,101 @@ class OffReLoadEvent(Event):
 
     def get_chunk_id(self):
         return self.m_chunk_id
+
+
+'''========================================================================'''
+'''                             Inference Events                           '''
+'''========================================================================'''
+
+infer_event_id = 0
+
+'''
+@class RequestEvent
+A request event.
+'''
+class RequestEvent(Event):
+    def __init__(self, type, name, timestamp, duration,
+                stage_id, request, mem = NoneMem):
+        global infer_event_id
+        super().__init__(infer_event_id, type, name, timestamp, duration, mem, resource_type = ResourceType.CPU)
+        infer_event_id += 1
+        if not (type == EventType.REQ):
+            raise ValueError("RequestEvent's Type must be REQ")
+        self.m_stage_id = stage_id
+        self.m_request = request
+
+    def get_stage_id(self):
+        return self.m_stage_id
+
+    def get_request(self):
+        return self.m_request
+
+    def generate_task(self):
+        '''
+        Generate a task from the request event.
+        '''
+        Task.from_request(self.m_request)
+        return task
+
+'''
+@class ScheduleEvent
+A schedule event.
+'''
+class ScheduleEvent(Event):
+    def __init__(self, type, name, timestamp, duration, dev_id = 0, mem = NoneMem):
+        global infer_event_id
+        super().__init__(infer_event_id, type, name, timestamp, duration, mem, resource_type = ResourceType.CPU)
+        infer_event_id += 1
+        if not (type == EventType.SCHD):
+            raise ValueError("ScheduleEvent's Type must be SCHD")
+        self.m_dev_id = dev_id
+
+    def get_dev_id(self):
+        return self.m_dev_id
+        
+'''
+@class PrefillEvent
+A prefill event.
+'''
+class PrefillEvent(Event):
+    def __init__(self, type, name, timestamp, duration,
+                dev_id, input_len, tasks, mem = NoneMem):
+        global infer_event_id
+        super().__init__(infer_event_id, type, name, timestamp, duration, mem, resource_type = ResourceType.GPU)
+        infer_event_id += 1
+        if not (type == EventType.PRF):
+            raise ValueError("PrefillEvent's Type must be PRF")
+        self.m_dev_id = dev_id
+        self.m_input_len = input_len
+        self.m_tasks = tasks
+        
+
+    def get_dev_id(self):
+        return self.m_dev_id
+
+    def get_input_len(self):
+        return self.m_input_len
+
+    def get_tasks(self):
+        return self.m_tasks
+
+'''
+@class DecodeEvent
+A decode event.
+'''
+class DecodeEvent(Event):
+    def __init__(self, type, name, timestamp, duration,
+                dev_id, tasks, mem = NoneMem):
+        global infer_event_id
+        super().__init__(infer_event_id, type, name, timestamp, duration, mem, resource_type = ResourceType.GPU)
+        infer_event_id += 1
+        if not (type == EventType.DCD):
+            raise ValueError("DecodeEvent's Type must be DCD")
+        self.m_dev_id = dev_id
+        self.m_tasks = tasks
+
+    def get_dev_id(self):
+        return self.m_dev_id
+    
+    def get_tasks(self):
+        return self.m_tasks
