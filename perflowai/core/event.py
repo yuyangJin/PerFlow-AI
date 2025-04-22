@@ -80,7 +80,7 @@ class Event:
 
     def set_mem(self, mem):
         if not isinstance(mem, (int, float)):
-            raise TypeError("Duration must be a number")
+            raise TypeError("memory must be a number")
         self.m_mem = mem
 
     def get_info_str(self):

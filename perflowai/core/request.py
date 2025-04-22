@@ -115,6 +115,12 @@ class Tasks:
 
     def get(self):
         return self.tasks
+    
+    def get_num_task(self) -> int:
+        return len(self.tasks)
+
+    def get_max_input_len(self) -> int:
+        return self.max_input_len
 
     def is_empty(self) -> bool:
         return len(self.tasks) == 0
