@@ -33,7 +33,7 @@ We use an example to further illustrate the usage. The following example shows t
 from perflowai.parallel.pipeline_parallel.ppgraph import PipeCostConfig
 from perflowai.parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph, ScheduleType
 from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
+from perflowai.visualizer.trace_visualizer import TraceVisualizer
 from perflowai.trace_op.filter import Filter
 from perflowai.trace_op.merge import Merge
 from perflowai.core.event import EventType
@@ -96,7 +96,7 @@ def Heterogeneous_ZBV_Simulate_Visualize():
     trace = PPSimulator(PipeType.Interleaved1F1B, g).run()
 
     # Visualization
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 ```
 

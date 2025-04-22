@@ -27,10 +27,10 @@ TITLE_WIDTH = SCALE_FACTOR * 60
 CENTER_TITLE_HEIGHT = SPAN_HEIGHT * 6
 
 '''
-@class TraceVisiualizer
+@class TraceVisualizer
 A trace visualizer.
 '''
-class TraceVisiualizer(FlowNode):
+class TraceVisualizer(FlowNode):
     def __init__(self, trace):
         self.trace = trace
 

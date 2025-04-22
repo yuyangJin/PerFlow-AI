@@ -8,7 +8,7 @@ from perflowai.parallel.pipeline_parallel.pipedream import PipeDreamGraph
 from perflowai.parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
 from perflowai.parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph, ScheduleType
 from perflowai.simulator.pp_simulator import PPSimulator, PipeType
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
+from perflowai.visualizer.trace_visualizer import TraceVisualizer
 from perflowai.trace_op.filter import Filter
 from perflowai.trace_op.merge import Merge
 from perflowai.core.event import EventType
@@ -49,7 +49,7 @@ def Heterogeneous_GPipe_Simulate_Visualize():
     sim = PPSimulator(PipeType.GPipe, g)
     trace = sim.run()
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def Heterogeneous_PipeDream_Simulate_Visualize():
@@ -87,7 +87,7 @@ def Heterogeneous_PipeDream_Simulate_Visualize():
     sim = PPSimulator(PipeType.PipeDream, g)
     trace = sim.run()
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def Heterogeneous_Interleaved1F1B_Simulate_Visualize():
@@ -125,7 +125,7 @@ def Heterogeneous_Interleaved1F1B_Simulate_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def Heterogeneous_ZeroBubble_Simulate_Visualize():
@@ -172,7 +172,7 @@ def Heterogeneous_ZeroBubble_Simulate_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 
@@ -234,7 +234,7 @@ def Heterogeneous_ZBV_Simulate_Visualize():
     trace = PPSimulator(PipeType.Interleaved1F1B, g).run()
 
     # Visualization
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 
 Heterogeneous_GPipe_Simulate_Visualize()

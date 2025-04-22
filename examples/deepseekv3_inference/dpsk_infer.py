@@ -11,7 +11,7 @@ from perflowai.simulator import InferSimulator
 from perflowai.core import Device, DeviceType
 from perflowai.core import Scheduler
 from perflowai.core import ModelConfig
-from perflowai.visualizer import TraceVisiualizer, MemoryFootprintVisualizer
+from perflowai.visualizer import TraceVisualizer, MemoryFootprintVisualizer
 
 class ParallelStrategy(Enum):
     DATA = "data"
@@ -196,6 +196,6 @@ if __name__ == "__main__":
                                 model_config = model_cfg)
 
     # Visualization
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
     
-    MemoryFootprintVisualizer(trace.get_memory_foorprint()).visualize()
+    MemoryFootprintVisualizer(trace.get_memory_footprint()).visualize()
