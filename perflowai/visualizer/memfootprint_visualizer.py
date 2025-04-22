@@ -16,7 +16,7 @@ class MemoryFootprintVisualizer(FlowNode):
 
     def visualize(self):
         # Plotting the memory footprint for the current stage  
-        plt.figure(figsize=(10, 6))  
+        plt.figure(figsize=(20, 4))  
         
         for stage_id, memory_usage in self.mem_fp.items():
 
