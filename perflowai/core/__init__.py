@@ -7,6 +7,7 @@ from .trace import Trace, PPTrace
 from .request import Request, Task, TaskType, Tasks, TaskPool
 from .scheduler import Scheduler
 from .device import Device, DeviceType
+from .model import ModelConfig
 
 
 __all__ = ['EventType', 'ResourceType', 'OprtEvent', 'CommEvent', 'FwdBwdEvent', 'OffReLoadEvent', 'Request','Task', 'TaskType', 'Tasks', 'TaskPool', 'Scheduler']
