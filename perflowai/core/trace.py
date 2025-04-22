@@ -38,7 +38,7 @@ class Trace:
         for i in range(self.m_ndevs):
             print(self.m_events[i])
     
-    def get_memory_foorprint(self):
+    def get_memory_footprint(self):
 
         memory_usages = dict()
 
@@ -97,7 +97,7 @@ class PPTrace(Trace):
     def get_nchunks(self):
         return self.m_nchunks
 
-    def get_memory_foorprint(self):
+    def get_memory_footprint(self):
 
         memory_usages = dict()
 

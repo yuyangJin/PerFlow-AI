@@ -2,7 +2,7 @@
 @module perflowai.visualizer
 '''
 
-from .trace_visualizer import TraceVisiualizer
+from .trace_visualizer import TraceVisualizer
 from .memfootprint_visualizer import MemoryFootprintVisualizer
 
-__all__ = ['TraceVisiualizer', 'MemoryFootprintVisualizer']
+__all__ = ['TraceVisualizer', 'MemoryFootprintVisualizer']

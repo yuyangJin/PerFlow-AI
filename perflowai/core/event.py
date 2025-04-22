@@ -267,7 +267,7 @@ class RequestEvent(Event):
         '''
         Generate a task from the request event.
         '''
-        Task.from_request(self.m_request)
+        task = Task.from_request(self.m_request)
         return task
 
 '''
