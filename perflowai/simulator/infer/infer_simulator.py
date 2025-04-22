@@ -59,7 +59,7 @@ class InferSimulator(Simulator):
             req_nodes.pop(event_id)            
 
     # def _get_next_request_event(self):
-
+    
     def simulate(self, scheduler: Scheduler, model_config: ModelConfig = None):
         '''
         Run the inference simulator
@@ -72,7 +72,6 @@ class InferSimulator(Simulator):
 
         if model_config is not None:
             self.m_memsim = ModelMemSimulator(model_config)
-
 
         '''
         0. SETUP VARIABLES
@@ -300,7 +299,6 @@ class InferSimulator(Simulator):
                     kvcache_size = self.m_memsim.kvcache(current_event)
                     print("[kvcache_size] ", kvcache_size)
                     current_event.set_mem(kvcache_size)
-                    
 
                 '''
                 2.2.3 EXECUTE PREFILL/DECODE EVENTS, PROCESS THE TASKS, GENERATE NEW TASKS TO THE TASKPOOL

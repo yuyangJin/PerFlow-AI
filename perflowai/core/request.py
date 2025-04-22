@@ -115,7 +115,7 @@ class Tasks:
 
     def get(self):
         return self.tasks
-    
+
     def get_num_task(self) -> int:
         return len(self.tasks)
 

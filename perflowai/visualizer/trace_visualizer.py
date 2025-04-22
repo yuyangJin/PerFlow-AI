@@ -34,7 +34,7 @@ class TraceVisiualizer(FlowNode):
     def __init__(self, trace):
         self.trace = trace
 
-    def visualize(self):
+    def visualize(self, PRINT_DETAIL = False):
         # visualize the trace
         #    Title Width              Data_width
         #   ------------------------------------------------
@@ -224,6 +224,9 @@ class TraceVisiualizer(FlowNode):
         draw_svg_title(data_height + info_height, 0)
 
         d.save_svg("trace.svg")
+
+        if PRINT_DETAIL:
+            print("E2E time: ", last_time)
 
     def run(self):
         self.visualize()

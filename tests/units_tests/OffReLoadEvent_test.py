@@ -11,7 +11,7 @@ def test_OffReLoadEvent():
     assert event.get_type() == EventType.OFFL
     assert event.get_name() == "Event1"
     assert event.get_timestamp() == 1672531200
-    assert event.get_duration() == 3600
+    assert event.get_duration() == 1800 #Base duraion is 3600, which means offload all data need 3600, so offload 50% only need 1800 
     assert event.get_load_ratio() == 0.5
     assert event.get_resource_type() == ResourceType.G2C_PCIE
     assert event.get_stage_id() == 1
