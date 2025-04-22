@@ -13,6 +13,8 @@ class Trace:
     def __init__(self, ndevs):
         self.m_ndevs = ndevs
 
+        self.m_cpu_events = list()
+
         self.m_events = dict()
         for i in range(ndevs):
             self.m_events[i] = list()
@@ -20,6 +22,12 @@ class Trace:
     def add_event(self, dev_id, event):
         self.m_events[dev_id].append(event)
     
+    def add_cpu_event(self, event):
+        self.m_cpu_events.append(event)
+        
+    def get_cpu_events(self):
+        return self.m_cpu_events
+
     def get_events(self, dev_id):
         return self.m_events[dev_id]
 
