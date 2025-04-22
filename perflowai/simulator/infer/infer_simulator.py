@@ -2,6 +2,8 @@
 @module inference simulator
 '''
 from ..simulator import Simulator
+from ..model import ModelMemSimulator
+from ...core import ModelConfig
 from ...core import Tasks, Task, TaskType, Trace, Scheduler, TaskPool, ResourceType, EventType, NoneTimestamp
 from collections import deque
 from typing import List, Dict, Any
@@ -57,8 +59,8 @@ class InferSimulator(Simulator):
             req_nodes.pop(event_id)            
 
     # def _get_next_request_event(self):
-
-    def simulate(self, scheduler: Scheduler):
+    
+    def simulate(self, scheduler: Scheduler, model_config: ModelConfig = None):
         '''
         Run the inference simulator
         '''
@@ -68,6 +70,8 @@ class InferSimulator(Simulator):
         nodes = self.m_graph.get_nodes()
         print(nodes)
 
+        if model_config is not None:
+            self.m_memsim = ModelMemSimulator(model_config)
 
         '''
         0. SETUP VARIABLES
@@ -223,6 +227,7 @@ class InferSimulator(Simulator):
             if current_event.get_type() == EventType.SCHD:
 
                 current_event.set_duration(1)
+                current_event.set_mem(0)
 
                 # Get the pending request events
                 pending_request_event_ids = self._get_pending_request_event_ids(req_nodes, current_cpu_timestamp)
@@ -290,7 +295,10 @@ class InferSimulator(Simulator):
 
                 current_event.set_duration(duration)
 
-
+                if model_config is not None:
+                    kvcache_size = self.m_memsim.kvcache(current_event)
+                    print("[kvcache_size] ", kvcache_size)
+                    current_event.set_mem(kvcache_size)
 
                 '''
                 2.2.3 EXECUTE PREFILL/DECODE EVENTS, PROCESS THE TASKS, GENERATE NEW TASKS TO THE TASKPOOL

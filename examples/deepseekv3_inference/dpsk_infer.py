@@ -8,9 +8,10 @@ import numpy as np
 from perflowai.core import Request, Task, TaskPool, TaskType, Tasks
 from perflowai.parallel import InferGraph
 from perflowai.simulator import InferSimulator
-from perflowai.core.device import Device, DeviceType
-from perflowai.core.scheduler import Scheduler
-from perflowai.visualizer.trace_visualizer import TraceVisiualizer
+from perflowai.core import Device, DeviceType
+from perflowai.core import Scheduler
+from perflowai.core import ModelConfig
+from perflowai.visualizer import TraceVisiualizer, MemoryFootprintVisualizer
 
 class ParallelStrategy(Enum):
     DATA = "data"
@@ -24,13 +25,13 @@ class ParallelConfig:
     pp_size: int = 1
     ep_size: int = 1
 
-@dataclass
-class ModelConfig:
-    num_layers: int
-    hidden_size: int
-    num_experts: int = 0
-    moe_layers: List[int] = field(default_factory=list)
-    parallel_strategy: ParallelStrategy = ParallelStrategy.DATA
+# @dataclass
+# class ModelConfig:
+#     num_layers: int
+#     hidden_size: int
+#     num_experts: int = 0
+#     moe_layers: List[int] = field(default_factory=list)
+#     parallel_strategy: ParallelStrategy = ParallelStrategy.DATA
 
 
 
@@ -159,9 +160,11 @@ if __name__ == "__main__":
     model_cfg = ModelConfig(
         num_layers=64,
         hidden_size=4096,
+        num_heads=32,
+        head_dim=128,
+        dtype_bytes=2,
         num_experts=8,
         moe_layers=[4, 8, 16, 20],
-        parallel_strategy=ParallelStrategy.EXPERT
     )
 
     devices = [
@@ -175,12 +178,12 @@ if __name__ == "__main__":
     #     Request(req_id=1, input_len=256, output_len=10, start_time=2)
     # ]
 
-    requests = generate_requests(num_requests=10, max_input_len=512, max_output_len=10, max_arrival_time=100.0) 
+    requests = generate_requests(num_requests=100, max_input_len=256, max_output_len=2048, max_arrival_time=3000.0) 
 
     print(f"Generated {len(requests)} requests")
 
     # 1. Create request node
-    infer_graph = InferGraph(ndevs = 2)
+    infer_graph = InferGraph(ndevs = 1)
     infer_graph.generate_nodes(requests)
 
 
@@ -189,9 +192,10 @@ if __name__ == "__main__":
     pool = simulator.get_task_pool()
     scheduler = FIFOScheduler(100, pool)
 
-    trace = simulator.simulate(scheduler)
+    trace = simulator.simulate(scheduler, 
+                                model_config = model_cfg)
 
     # Visualization
     TraceVisiualizer(trace).visualize()
     
-    # simulator.visualize()
+    MemoryFootprintVisualizer(trace.get_memory_foorprint()).visualize()
