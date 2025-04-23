@@ -92,7 +92,7 @@ A PPGraph is a pipeline trace.
 An event is a node in the PPGraph, and it must be FwdBwdEvent.
 '''
 class PPGraph(Trace):
-    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None):
+    def __init__(self, nstages, nmicrobatches, nchunks, cost_config=None, offload_config=None, recompute_config=None):
         ''' 
         Basic information for pipeline parallelism 
         '''
@@ -122,7 +122,12 @@ class PPGraph(Trace):
             self.m_offload = True
         self.m_offload_config = offload_config
 
-
+        # Recompute
+        self.m_recompute = False
+        if recompute_config != None:
+            self.m_recompute = True
+        self.m_recompute_config = recompute_config
+        
         '''
         int m_nnodes
         the number of nodes
@@ -176,7 +181,7 @@ class PPGraph(Trace):
     def get_nmicrobatches(self):
         return self.m_nmicrobatches
 
-    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0, mem = 0):
+    def add_node(self, event_type, stage_id, microbatch_id, duration, chunk_id = 0, mem = 0, recompute = 0):
         '''
         Get event id
         '''
@@ -204,7 +209,8 @@ class PPGraph(Trace):
                             stage_id = stage_id, 
                             microbatch_id = microbatch_id, 
                             chunk_id = chunk_id,
-                            mem = mem)
+                            mem = mem,
+                            recompute_mask = recompute)
         
         '''
         Insert the created event into the node list
@@ -260,12 +266,22 @@ class PPGraph(Trace):
                         else:
                             assert False
                         
+                        recompute = 0
+                        if self.m_recompute:
+                            if isinstance(self.m_recompute_config.recompute_mask, int): 
+                                recompute = self.m_recompute_config.recompute_mask
+                            elif isinstance(self.m_recompute_config.recompute_mask[stage], int):
+                                recompute = self.m_recompute_config.recompute_mask[stage]
+                            elif isinstance(self.m_recompute_config.recompute_mask[stage][chk], int): 
+                                recompute = self.m_recompute_config.recompute_mask[stage][chk]
+                        
                         self.add_node(event_type = type, 
                                       stage_id = stage, 
                                       microbatch_id = mb, 
                                       duration = duration, 
                                       chunk_id = chk, 
-                                      mem = mem)
+                                      mem = mem,
+                                      recompute = recompute)
         
         if self.m_offload:
             ratio = 0.0
