@@ -8,6 +8,7 @@ from ...core import Tasks, Task, TaskType, Trace, Scheduler, TaskPool, ResourceT
 from collections import deque
 from typing import List, Dict, Any
 import copy
+import numpy as np
 
 class InferSimulator(Simulator):
     '''
@@ -30,33 +31,33 @@ class InferSimulator(Simulator):
         '''
         return self.m_task_pool
 
-    def _get_pending_request_event_ids(self, req_nodes, current_timestamp):
+    def _get_pending_request_event_ids(self, req_node_ids, current_timestamp):
         '''
         Get the pending request events
         '''
 
         pending_request_event_ids = []
-        for event_id, event in req_nodes.items():
-            if event.get_type() == EventType.REQ and event.get_timestamp() <= current_timestamp:
+        for event_id in req_node_ids:
+            event = self.m_graph.get_request_nodes()[event_id]
+            if event.get_timestamp() <= current_timestamp:
                 pending_request_event_ids.append(event_id)
 
         return pending_request_event_ids
 
-    def _process_requeset_events(self, req_nodes, pending_request_event_ids):
+    def _process_requeset_events(self, req_node_ids, pending_request_event_ids):
         '''
         Process the pending request events
         '''
 
         for event_id in pending_request_event_ids:
-            event = req_nodes[event_id]
-            if event.get_type() == EventType.REQ:
-                # Add the request event to the trace
-                # trace.add_cpu_event(event)
-                event.set_duration(1)
-                # Add the prefill of the request to the task pool
-                self.m_task_pool.add(Task.from_request(event.get_request()))
-        
-            req_nodes.pop(event_id)            
+            event = self.m_graph.get_request_nodes()[event_id]
+            # Add the request event to the trace
+            # trace.add_cpu_event(event)
+            event.set_duration(1)
+            # Add the prefill of the request to the task pool
+            self.m_task_pool.add(Task.from_request(event.get_request()))
+    
+            req_node_ids.remove(event_id)            
 
     # def _get_next_request_event(self):
     
@@ -65,7 +66,7 @@ class InferSimulator(Simulator):
         Run the inference simulator
         '''
 
-        req_nodes = copy.deepcopy(self.m_graph.get_nodes())
+        req_node_ids = copy.deepcopy(list(self.m_graph.get_request_nodes()))
 
         nodes = self.m_graph.get_nodes()
         print(nodes)
@@ -112,10 +113,10 @@ class InferSimulator(Simulator):
         
         while len(self.m_task_pool.pool) == 0:
             # Get the pending request events
-            pending_request_event_ids = self._get_pending_request_event_ids(req_nodes, current_timestamps[0][ResourceType.CPU])
+            pending_request_event_ids = self._get_pending_request_event_ids(req_node_ids, current_timestamps[0][ResourceType.CPU])
 
             # Deal with the pending request events
-            self._process_requeset_events(req_nodes, pending_request_event_ids)
+            self._process_requeset_events(req_node_ids, pending_request_event_ids)
             
             current_timestamps[0][ResourceType.CPU] += 1
 
@@ -133,7 +134,7 @@ class InferSimulator(Simulator):
         '''
         2. SIMULATION
         '''
-        while not (len(ready_event_ids) == 0 and len(req_nodes) == 0 and self.m_task_pool.is_empty()):  
+        while not (len(ready_event_ids) == 0 and len(req_node_ids) == 0 and self.m_task_pool.is_empty()):  
             print ("===============================================")
 
             '''
@@ -142,12 +143,12 @@ class InferSimulator(Simulator):
             if len(ready_event_ids) == 0:
                 print('here we check new request')
                 # Get the pending request events
-                pending_request_event_ids = self._get_pending_request_event_ids(req_nodes, current_cpu_timestamp)
+                pending_request_event_ids = self._get_pending_request_event_ids(req_node_ids, current_cpu_timestamp)
 
                 # If the task pool has tasks, them deal with the pending request, and add a schedule node
                 if not self.m_task_pool.is_empty() or len(pending_request_event_ids) != 0:
                     # Deal with the pending request events
-                    self._process_requeset_events(req_nodes, pending_request_event_ids)
+                    self._process_requeset_events(req_node_ids, pending_request_event_ids)
 
                     # Create a schedule event node as the first one
                     sched_event_id = self.m_graph.add_schedule_node(0)
@@ -166,16 +167,6 @@ class InferSimulator(Simulator):
                     current_cpu_timestamp = current_timestamps[0][ResourceType.CPU]
 
                     continue
-
-                # else:
-                #     # Deal with the pending request events
-                #     self._process_requeset_events(req_nodes, pending_request_event_ids)
-
-                #     # Create a schedule event node as the first one
-                #     sched_event_id = self.m_graph.add_schedule_node(0)
-
-                #     # Add the schedule event to the ready events
-                #     ready_event_ids.append(sched_event_id)
 
 
             '''
@@ -231,10 +222,10 @@ class InferSimulator(Simulator):
                 current_event.set_mem(0)
 
                 # Get the pending request events
-                pending_request_event_ids = self._get_pending_request_event_ids(req_nodes, current_cpu_timestamp)
+                pending_request_event_ids = self._get_pending_request_event_ids(req_node_ids, current_cpu_timestamp)
 
                 # Deal with the pending request events
-                self._process_requeset_events(req_nodes, pending_request_event_ids)
+                self._process_requeset_events(req_node_ids, pending_request_event_ids)
 
                 # # Set the start timestamp of the current event
                 # current_event.set_timestamp(start_timestamp)
@@ -300,6 +291,7 @@ class InferSimulator(Simulator):
                     current_event.set_mem(kvcache_size)
                     duration = self.m_perfsim.time(current_event)
                 current_event.set_duration(duration)
+                current_event.get_tasks().update_time(start_timestamp + duration)
 
                 '''
                 2.2.3 EXECUTE PREFILL/DECODE EVENTS, PROCESS THE TASKS, GENERATE NEW TASKS TO THE TASKPOOL
@@ -512,7 +504,7 @@ class InferSimulator(Simulator):
             #         if event_id not in completed_event_ids.keys(): # not visited
             #             ready_event_ids.append(event_id)
 
-            print('req_nodes:', req_nodes)
+            print('req_node_ids:', req_node_ids)
             print('[Task Pool]:', self.m_task_pool.pool)
             print('ready_event_ids at the iter end:', ready_event_ids)
 
@@ -520,3 +512,44 @@ class InferSimulator(Simulator):
 
         return trace
 
+    def get_metrics(self):
+        req_nodes = self.m_graph.get_request_nodes()
+
+        # Calculate Time To First Token (TTFT), Time Per Output Token (TPOT), TPS ()
+        ttft = []
+        tpot = []
+        ttlt = []
+        for _, node in req_nodes.items():
+            req = node.get_request()
+
+            print(req.prefill_time)
+            print(req.decode_time)
+
+            if req.prefill_time is None or req.decode_time is None:
+                print(f"Request {req.req_id} has no prefill or decode time.")
+                continue
+
+            # Time To First Token (TTFT)
+            ttft.append(req.prefill_time - req.start_time)
+            
+            # Time Per Output Token (TPOT)
+            sub_tpot = []
+            if len(req.decode_time) > 0:
+                sub_tpot.append(req.decode_time[0] - req.prefill_time)
+                for i in range(len(req.decode_time) - 1):
+                    sub_tpot.append(req.decode_time[i + 1] - req.decode_time[i])
+            tpot.append(sub_tpot)
+
+            # Time To Last Token (TTLT)
+            if len(req.decode_time) > 0:
+                ttlt.append(req.decode_time[-1] - req.start_time)
+
+        tps_avg = 1 / (sum(ttlt) / len(ttlt))
+        ttft_avg = sum(ttft) / len(ttft)
+        # tpot_avg = sum(tpot) / len(tpot)
+
+        return {
+            "TTFT": ttft_avg,
+            # "TPOT": tpot_avg,
+            "TPS": tps_avg,
+        }

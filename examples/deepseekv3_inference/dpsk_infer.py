@@ -177,7 +177,7 @@ if __name__ == "__main__":
     #     Request(req_id=1, input_len=256, output_len=10, start_time=2)
     # ]
 
-    requests = generate_requests(num_requests=10, max_input_len=256, max_output_len=2048, max_arrival_time=3000.0) 
+    requests = generate_requests(num_requests=100, max_input_len=256, max_output_len=2048, max_arrival_time=3000.0) 
 
     print(f"Generated {len(requests)} requests")
 
@@ -194,6 +194,8 @@ if __name__ == "__main__":
     trace = simulator.simulate(scheduler, 
                                 model_config = model_cfg,
                                 device_config = device)
+
+    print(simulator.get_metrics())
 
     # Visualization
     TraceVisualizer(trace).visualize()
