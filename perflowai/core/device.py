@@ -6,9 +6,9 @@ class DeviceType(Enum):
     CPU = "CPU"
 
 @dataclass
-class Device:
+class DeviceConfig:
     id: int
     type: DeviceType
     memory_capacity: int  # in MB
-    bandwidth: float      # in GB/s
-    compute_perf: float   # FLOPs per cycle
+    memory_bandwidth: float      # in GB/s
+    compute_flops: float   # FLOPs per cycle
