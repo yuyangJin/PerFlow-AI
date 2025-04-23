@@ -24,7 +24,7 @@ def test_GPipe_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.GPipe, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()
 
@@ -45,7 +45,7 @@ def test_PipeDream_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.PipeDream, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()
 
@@ -66,7 +66,7 @@ def test_Interleaved1F1B_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()
 
@@ -90,7 +90,7 @@ def test_ZeroBubble_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()
 
@@ -114,7 +114,7 @@ def test_ZBV_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()
 
@@ -137,6 +137,6 @@ def test_offloading_Memory_Footprint_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    mfp = trace.get_memory_foorprint()
+    mfp = trace.get_memory_footprint()
 
     MemoryFootprintVisualizer(mfp).visualize()

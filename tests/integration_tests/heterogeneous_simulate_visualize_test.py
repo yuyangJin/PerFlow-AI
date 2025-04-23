@@ -4,7 +4,7 @@ test Gernerate heterogeneous graph & Visualize the simulated trace
 
 from perflowai.parallel.pipeline_parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
 from perflowai.simulator import PPSimulator, PipeType
-from perflowai.visualizer import TraceVisiualizer
+from perflowai.visualizer import TraceVisualizer
 from perflowai.trace_op import Filter, Merge
 from perflowai.core import EventType
 
@@ -53,7 +53,7 @@ def test_Heterogeneous_GPipe_Simulate_Visualize():
     for i in range(trace.get_nstages()):
         assert str(trace.get_events(i)) == stage_events_str[i]
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def test_Heterogeneous_PipeDream_Simulate_Visualize():
@@ -101,7 +101,7 @@ def test_Heterogeneous_PipeDream_Simulate_Visualize():
     for i in range(trace.get_nstages()):
         assert str(trace.get_events(i)) == stage_events_str[i]
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def test_Heterogeneous_Interleaved1F1B_Simulate_Visualize():
@@ -150,7 +150,7 @@ def test_Heterogeneous_Interleaved1F1B_Simulate_Visualize():
     for i in range(trace.get_nstages()):
         assert str(trace.get_events(i)) == stage_events_str[i]
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def test_Heterogeneous_ZeroBubble_Simulate_Visualize():
@@ -201,7 +201,7 @@ def test_Heterogeneous_ZeroBubble_Simulate_Visualize():
     assert trace.get_nmicrobatches() == 10
     assert trace.get_nchunks() == 2
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def test_Heterogeneous_ZBV_Simulate_Visualize():
@@ -252,6 +252,6 @@ def test_Heterogeneous_ZBV_Simulate_Visualize():
     assert trace.get_nmicrobatches() == 10
     assert trace.get_nchunks() == 2
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 

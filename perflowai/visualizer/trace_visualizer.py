@@ -27,10 +27,10 @@ TITLE_WIDTH = SCALE_FACTOR * 60
 CENTER_TITLE_HEIGHT = SPAN_HEIGHT * 6
 
 '''
-@class TraceVisiualizer
+@class TraceVisualizer
 A trace visualizer.
 '''
-class TraceVisiualizer(FlowNode):
+class TraceVisualizer(FlowNode):
     def __init__(self, trace):
         self.trace = trace
 
@@ -105,6 +105,12 @@ class TraceVisiualizer(FlowNode):
                 c = np.array([227, 189, 152])
             elif typ == EventType.REL:
                 c = np.array([198, 157, 225])
+            elif typ == EventType.SCHD:
+                c = np.array([137, 168, 253])
+            elif typ == EventType.PRF:
+                c = np.array([88, 133, 199])
+            elif typ == EventType.DCD:
+                c = np.array([111, 66, 233])
             else:
                 raise ValueError("Type must be an instance of EventType")
             
@@ -163,6 +169,8 @@ class TraceVisiualizer(FlowNode):
                 h = it * SPAN_HEIGHT + (it + 1) * BORDER_SIZE
                 if EventType.OFFL in exist_type:
                     h = h * 3
+                if EventType.SCHD in exist_type:
+                    h = h * 2
                 plot_text(oy + h, ox + 6 * SCALE_FACTOR, "Device {}".format(i), "left")
         
         def draw_data(oy, ox):
@@ -172,6 +180,9 @@ class TraceVisiualizer(FlowNode):
                 if EventType.OFFL in exist_type:
                     h = h * 3
                     lh = lh * 3
+                if EventType.SCHD in exist_type:
+                    h = h * 2
+                    lh = lh * 2
                 
                 dev_events = self.trace.get_events(i)
                 for e in dev_events:
@@ -184,6 +195,8 @@ class TraceVisiualizer(FlowNode):
                         bh = SPAN_HEIGHT + BORDER_SIZE
                     elif e.m_type == EventType.REL:
                         bh = (SPAN_HEIGHT + BORDER_SIZE)*2
+                    elif e.m_type == EventType.SCHD:
+                        bh = SPAN_HEIGHT + BORDER_SIZE
                     plot_rect(oy + h + bh, ox + start, SPAN_HEIGHT, duration, get_color(e.m_type, (e.m_chunk_id if hasattr(e, 'm_chunk_id') else 0)))
                     plot_rect_frame(oy + h + bh - BORDER_SIZE, ox + start, SPAN_HEIGHT + BORDER_SIZE, duration)
                     plot_text(oy + h + bh + SPAN_HEIGHT / 5, ox + center, e.m_name, font_scale=0.6, fill='black')

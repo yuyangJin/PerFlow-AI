@@ -29,7 +29,7 @@ def test_Interleaved1F1B_Simulate_Visualize():
     for i in range(trace.get_nstages()):
         assert str(trace.get_events(i)) == stage_events_str[i]
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 
@@ -51,7 +51,7 @@ def test_offload_Interleaved1F1B_Simulate_Visualize():
     #for i in range(trace.get_nstages()):
     #    assert str(trace.get_events(i)) == stage_events_str[i]
 
-    visualizer = TraceVisiualizer(trace)
+    visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
 def test_recompoute_Interleaved1F1B_Simulate_Visualize():

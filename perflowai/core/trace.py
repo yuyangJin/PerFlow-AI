@@ -13,6 +13,8 @@ class Trace:
     def __init__(self, ndevs):
         self.m_ndevs = ndevs
 
+        self.m_cpu_events = list()
+
         self.m_events = dict()
         for i in range(ndevs):
             self.m_events[i] = list()
@@ -20,6 +22,12 @@ class Trace:
     def add_event(self, dev_id, event):
         self.m_events[dev_id].append(event)
     
+    def add_cpu_event(self, event):
+        self.m_cpu_events.append(event)
+        
+    def get_cpu_events(self):
+        return self.m_cpu_events
+
     def get_events(self, dev_id):
         return self.m_events[dev_id]
 
@@ -29,6 +37,49 @@ class Trace:
     def output(self):
         for i in range(self.m_ndevs):
             print(self.m_events[i])
+    
+    def get_memory_footprint(self):
+
+        memory_usages = dict()
+
+        # Process each stage separately  
+        for dev_id in range(self.get_ndevs()):
+            events = self.get_events(dev_id)
+
+            # Dictionary to hold memory changes at specific time points  
+            time_memory_changes = {}  
+            
+            for event in events:  
+                # Calculate start and end times  
+                start_time = event.get_timestamp()
+                end_time = event.get_timestamp() + event.get_duration()
+                
+                # Update memory changes at the start time  
+                if start_time not in time_memory_changes:  
+                    time_memory_changes[start_time] = 0  
+                time_memory_changes[start_time] += 0 
+                
+                # Update memory changes at the end time  
+                if end_time not in time_memory_changes:  
+                    time_memory_changes[end_time] = 0  
+                time_memory_changes[end_time] += event.get_mem()  # Memory is released after duration 
+
+            # Sort time points  
+            sorted_times = sorted(time_memory_changes.keys())  
+
+
+            # Calculate memory usage over time  
+            memory_usage = []  
+            current_memory = 0  
+            
+            for time in sorted_times:    
+                memory_usage.append((time, current_memory))  
+                current_memory += time_memory_changes[time]
+
+            memory_usages[dev_id] = memory_usage
+
+            
+        return memory_usages
 
 class PPTrace(Trace):
     def __init__(self, ndevs, nstages, nmicrobatches, nchunks):
@@ -46,7 +97,7 @@ class PPTrace(Trace):
     def get_nchunks(self):
         return self.m_nchunks
 
-    def get_memory_foorprint(self):
+    def get_memory_footprint(self):
 
         memory_usages = dict()
 

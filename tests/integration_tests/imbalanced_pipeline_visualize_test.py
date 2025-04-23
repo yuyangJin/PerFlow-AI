@@ -4,7 +4,7 @@ test Generate imbalanced pipeline & Visualize the simulated trace
 
 from perflowai.parallel import PipeCostConfig, GPipeGraph, PipeDreamGraph, Interleaved1F1BGraph, ZeroBubbleGraph, ScheduleType
 from perflowai.simulator import PPSimulator, PipeType
-from perflowai.visualizer import TraceVisiualizer
+from perflowai.visualizer import TraceVisualizer
 
 def test_Imbalanced_GPipe_Simulate_Visualize():
 
@@ -21,7 +21,7 @@ def test_Imbalanced_GPipe_Simulate_Visualize():
     sim = PPSimulator(PipeType.GPipe, g)
     trace = sim.run()
 
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 def test_Imbalanced_PipeDream_Simulate_Visualize():
 
@@ -38,7 +38,7 @@ def test_Imbalanced_PipeDream_Simulate_Visualize():
     sim = PPSimulator(PipeType.PipeDream, g)
     trace = sim.run()
 
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 def test_Imbalanced_Interleaved1F1B_Simulate_Visualize():
 
@@ -55,7 +55,7 @@ def test_Imbalanced_Interleaved1F1B_Simulate_Visualize():
     sim = PPSimulator(PipeType.Interleaved1F1B, g)
     trace = sim.run()
 
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 def test_Imbalanced_ZeroBubble_Simulate_Visualize():
 
@@ -73,7 +73,7 @@ def test_Imbalanced_ZeroBubble_Simulate_Visualize():
     sim = PPSimulator(PipeType.ZeroBubble, g)
     trace = sim.run()
 
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
 
 def test_Imbalanced_ZBV_Simulate_Visualize():
 
@@ -91,4 +91,4 @@ def test_Imbalanced_ZBV_Simulate_Visualize():
     sim = PPSimulator(PipeType.ZeroBubble, g)
     trace = sim.run()
 
-    TraceVisiualizer(trace).visualize()
+    TraceVisualizer(trace).visualize()
