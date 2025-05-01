@@ -61,6 +61,13 @@ class Task:
     def __repr__(self):
         return f"Task(id={self.id}, req_id={self.req.req_id}, task_type={self.task_type})"
 
+    def update_time(self, time: float):
+        if self.task_type == TaskType.PREFILL:
+            self.req.prefill_time = time
+        elif self.task_type == TaskType.DECODE:
+            self.req.decode_time.append(time)
+        # print("[Task request time update] ", self.req.req_id, self.task_type, self.req.prefill_time, self.req.decode_time)
+
     @classmethod
     def from_request(cls, req: Request):
         global task_id
@@ -124,6 +131,10 @@ class Tasks:
 
     def is_empty(self) -> bool:
         return len(self.tasks) == 0
+
+    def update_time(self, time: float):
+        for task in self.tasks:
+            task.update_time(time)
     
     @classmethod
     def from_prefill_tasks(cls, tasks, complete_time: float):

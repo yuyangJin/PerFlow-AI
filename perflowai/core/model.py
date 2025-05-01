@@ -9,6 +9,8 @@ from typing import List
 class ModelConfig:
     num_layers: int
     hidden_size: int
+    hidden_dim: int
+    ffn_dim: int
     num_heads: int
     head_dim: int
     dtype_bytes: int

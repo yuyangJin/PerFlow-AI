@@ -6,7 +6,7 @@ from .event import EventType, ResourceType, Event, OprtEvent, CommEvent, FwdBwdE
 from .trace import Trace, PPTrace
 from .request import Request, Task, TaskType, Tasks, TaskPool
 from .scheduler import Scheduler
-from .device import Device, DeviceType
+from .device import DeviceConfig, DeviceType
 from .model import ModelConfig
 
 

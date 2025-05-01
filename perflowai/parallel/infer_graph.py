@@ -26,6 +26,7 @@ class InferGraph(Trace):
         It is a dynamic dictionary, event nodes are added to it during the inference process.
         '''
         self.m_nodes = dict()
+        self.m_req_nodes = dict()
 
         '''
         Dict<int, List<int>> m_out_edges/m_in_edges
@@ -57,7 +58,7 @@ class InferGraph(Trace):
                     request = req)
         # self.add_cpu_event(event)
         id = event.get_id()
-        self.m_nodes[id] = event
+        self.m_req_nodes[id] = event
         return id
 
     def add_schedule_node(self, timestamp: int):
@@ -121,6 +122,9 @@ class InferGraph(Trace):
 
     def get_nodes(self):
         return self.m_nodes
+
+    def get_request_nodes(self):
+        return self.m_req_nodes
 
     def get_in_edges(self):
         return self.m_in_edges

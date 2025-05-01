@@ -8,7 +8,7 @@ import numpy as np
 from perflowai.core import Request, Task, TaskPool, TaskType, Tasks
 from perflowai.parallel import InferGraph
 from perflowai.simulator import InferSimulator
-from perflowai.core import Device, DeviceType
+from perflowai.core import DeviceConfig, DeviceType
 from perflowai.core import Scheduler
 from perflowai.core import ModelConfig
 from perflowai.visualizer import TraceVisualizer, MemoryFootprintVisualizer
@@ -160,6 +160,8 @@ if __name__ == "__main__":
     model_cfg = ModelConfig(
         num_layers=64,
         hidden_size=4096,
+        ffn_dim=16384,
+        hidden_dim=256,
         num_heads=32,
         head_dim=128,
         dtype_bytes=2,
@@ -167,10 +169,7 @@ if __name__ == "__main__":
         moe_layers=[4, 8, 16, 20],
     )
 
-    devices = [
-        Device(id=0, type=DeviceType.GPU, memory_capacity=16384, bandwidth=900, compute_perf=1e12),
-        Device(id=1, type=DeviceType.GPU, memory_capacity=16384, bandwidth=900, compute_perf=1e12)
-    ]
+    device = DeviceConfig(id=0, type=DeviceType.GPU, memory_capacity=16384, memory_bandwidth=900, compute_flops=1e12)
 
     # Generate sample requests
     # requests = [
@@ -190,10 +189,13 @@ if __name__ == "__main__":
     # Run simulation
     simulator = InferSimulator(infer_graph, requests)
     pool = simulator.get_task_pool()
-    scheduler = FIFOScheduler(100, pool)
+    scheduler = FIFOScheduler(2048, pool)
 
     trace = simulator.simulate(scheduler, 
-                                model_config = model_cfg)
+                                model_config = model_cfg,
+                                device_config = device)
+
+    print(simulator.get_metrics())
 
     # Visualization
     TraceVisualizer(trace).visualize()
