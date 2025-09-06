@@ -1,6 +1,7 @@
 '''
 test Visualize the simulated trace of Interleaved1F1B
 '''
+import pytest
 
 from perflowai.parallel.pipeline_parallel import PipeCostConfig, PipeOffloadConfig, PipeRecomputeConfig, Interleaved1F1BGraph 
 from perflowai.simulator import PPSimulator, PipeType
@@ -33,7 +34,7 @@ def test_Interleaved1F1B_Simulate_Visualize():
     visualizer.visualize()
 
 
-def test_offload_Interleaved1F1B_Simulate_Visualize():
+def test_offload_Interleaved1F1B_Simulate_Visualize():    
     g = Interleaved1F1BGraph(16, 28, 2, cost_config = PipeCostConfig(
         fwd_time = 50,
         bwd_time = 63,
@@ -58,8 +59,14 @@ def test_offload_Interleaved1F1B_Simulate_Visualize():
     visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
-def test_recompoute_Interleaved1F1B_Simulate_Visualize():
-    g = Interleaved1F1BGraph(16, 24, 2, cost_config = PipeCostConfig(
+def test_recompute_Interleaved1F1B_Simulate_Visualize():
+    with pytest.raises(AssertionError):
+        g = Interleaved1F1BGraph(8, 12, 2, cost_config = PipeCostConfig(
+            fwd_time = 111,
+            bwd_time = 120,
+            wgt_time = 143
+        ), recompute_config = PipeRecomputeConfig(recompute_mask = [0,1,0,1]))
+    g = Interleaved1F1BGraph(4, 12, 2, cost_config = PipeCostConfig(
         fwd_time = 111,
         bwd_time = 120,
         wgt_time = 143
