@@ -22,6 +22,9 @@ class Trace:
     def add_event(self, dev_id, event):
         self.m_events[dev_id].append(event)
     
+    def add_events(self, dev_id, events):
+        self.m_events[dev_id] += events
+    
     def add_cpu_event(self, event):
         self.m_cpu_events.append(event)
         

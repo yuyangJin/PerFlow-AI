@@ -7,7 +7,10 @@ from ..core import Event, EventType, Trace
 
 from typing import List
 
+from glob import glob
 import json
+import threading
+from threading import Lock
 
 '''
 @class TorchProfilerTraceReader
@@ -17,7 +20,90 @@ A trace reader for TorchProfiler.
 class TorchProfilerTraceReader(TraceReader):
     def __init__(self, trace_path: str):
         super().__init__('Torch Profiler Trace Reader', trace_path)
+        self.m_metadata = None
 
+    def get_events(self, events):
+        ret = []
+        id = 0
+        for e in events:
+            # Count event id
+            id += 1 
+
+            # Get related info of event 
+            start_ts = e['ts']
+            duration = e['dur']
+            name = e['name']
+            type = None
+
+            event = Event(id, type, name, start_ts, duration)
+
+            ret.append(event)
+
+        return ret
+
+    def read_trace(self, fn, rank, thread_results, lock):
+        try:
+            # Process file safely
+            with open(fn, 'r') as f:
+                trace = json.load(f)
+                print(f"Loaded trace file {fn} with {len(trace['traceEvents'])} events")
+            events = self.get_events(trace["traceEvents"])
+            # Use lock to safely store events
+            with lock:
+                thread_results[rank] = events
+            print(f'Imported {len(thread_results[rank])} events from {fn}')
+        except Exception as e:
+            print(f"Error processing file {fn}: {e}")
+            thread_results[rank] = []
+
+    def parallel_read(self, start = None, end = None, stride = None) -> Trace:
+        
+        # Thread-safe structures
+        thread_results = {}
+        lock = Lock()
+        threads = []
+
+        for rank in range(start, end, stride):
+            
+            # Generate file name
+            fns = glob(self.m_trace_path + f"/profile_{rank}.json")
+
+            # Check if file exists or not
+            if len(fns) != 1:
+                print(f"Error: Expected 1 file for rank {rank}, found {len(fns)}")
+                continue
+            
+            fn = fns[0]
+
+            # Thread related code
+            thread = threading.Thread(
+                target=self.read_trace, 
+                args=(fn, rank, thread_results, lock)
+            )
+
+            threads.append(thread)
+            thread.start()
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Start rank contributes the metadata
+        fns = glob(self.m_trace_path + f"/profile_{start}.json")
+        rank_start_trace = json.load(open(fn))
+        self.m_metadata = rank_start_trace
+        self.m_metadata["traceEvents"] = []
+
+
+        # Get the basic information
+        ndevs = int(self.m_metadata['distributedInfo']['world_size'])
+
+        trace = Trace(ndevs)
+
+        # Combine results from all threads
+        for rank in range(start, end, stride):
+            events = thread_results.get(rank, [])
+            trace.add_events(rank, events)
 
     def read(self, event_types: List[EventType]) -> Trace:
 
