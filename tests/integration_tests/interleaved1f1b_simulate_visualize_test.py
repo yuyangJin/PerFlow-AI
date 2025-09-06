@@ -59,7 +59,7 @@ def test_offload_Interleaved1F1B_Simulate_Visualize():
     visualizer = TraceVisualizer(trace)
     visualizer.visualize()
 
-def test_recompoute_Interleaved1F1B_Simulate_Visualize():
+def test_recompute_Interleaved1F1B_Simulate_Visualize():
     with pytest.raises(AssertionError):
         g = Interleaved1F1BGraph(8, 12, 2, cost_config = PipeCostConfig(
             fwd_time = 111,
