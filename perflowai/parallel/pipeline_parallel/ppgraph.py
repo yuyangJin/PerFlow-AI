@@ -126,6 +126,7 @@ class PPGraph(Trace):
         self.m_recompute = False
         if recompute_config != None:
             self.m_recompute = True
+            assert nstages == len(recompute_config.recompute_mask)
         self.m_recompute_config = recompute_config
         
         '''
