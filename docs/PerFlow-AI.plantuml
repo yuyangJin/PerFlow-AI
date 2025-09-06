@@ -265,10 +265,10 @@ namespace analyzer{
     TraceAnalyzer .down.|> FlowNode
     Trace -down- TraceAnalyzer    
 
-    TraceAnalyzer .down.|> Hotspot
-    TraceAnalyzer .down.|> BubbleIdle
-    TraceAnalyzer .down.|> Roofline
-    TraceAnalyzer .down.|> Overlap
+    Hotspot -up-|> TraceAnalyzer
+    BubbleIdle -up-|> TraceAnalyzer
+    Roofline -up-|> TraceAnalyzer
+    Overlap -up-|> TraceAnalyzer
 }
 
 namespace visualizer{
