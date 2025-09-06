@@ -90,7 +90,8 @@ class TorchProfilerTraceReader(TraceReader):
 
         # Start rank contributes the metadata
         fns = glob(self.m_trace_path + f"/profile_{start}.json")
-        rank_start_trace = json.load(open(fn))
+        with open(fns[0], 'r') as f:
+            rank_start_trace = json.load(f)
         self.m_metadata = rank_start_trace
         self.m_metadata["traceEvents"] = []
 
@@ -104,6 +105,8 @@ class TorchProfilerTraceReader(TraceReader):
         for rank in range(start, end, stride):
             events = thread_results.get(rank, [])
             trace.add_events(rank, events)
+
+        return trace
 
     def read(self, event_types: List[EventType]) -> Trace:
 
