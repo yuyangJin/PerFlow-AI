@@ -239,8 +239,36 @@ namespace analyzer{
         + __init__()
         + analyze()
     }
+    class Hotspot{
+        "Show the hotspots"
+        
+        + analyze()
+    }
+    class BubbleIdle{
+        "Calculate the bubble between kernels"
+    
+        + analyze()
+    }
+
+    class Roofline{
+        "Calculate the roofline model of each kernel"
+
+        + analyze()
+    }
+
+    class Overlap{
+        "Analyze the overlapped communications"
+
+        + analyze()
+    }
+
     TraceAnalyzer .down.|> FlowNode
-    Trace -down- TraceAnalyzer
+    Trace -down- TraceAnalyzer    
+
+    Hotspot -up-|> TraceAnalyzer
+    BubbleIdle -up-|> TraceAnalyzer
+    Roofline -up-|> TraceAnalyzer
+    Overlap -up-|> TraceAnalyzer
 }
 
 namespace visualizer{
