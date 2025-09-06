@@ -10,7 +10,7 @@ from perflowai.parallel import InferGraph
 from perflowai.simulator import InferSimulator
 from perflowai.core import DeviceConfig, DeviceType
 from perflowai.core import Scheduler
-from perflowai.core import ModelConfig
+from perflowai.core import ModelTestConfig
 from perflowai.visualizer import TraceVisualizer, MemoryFootprintVisualizer
 
 class ParallelStrategy(Enum):
@@ -157,7 +157,9 @@ def generate_requests(num_requests: int,
 # Usage example
 if __name__ == "__main__":
     # Configuration
-    model_cfg = ModelConfig(
+    model_cfg = ModelTestConfig(
+        name = "test-model",
+        url = "null",
         num_layers=64,
         hidden_size=4096,
         ffn_dim=16384,
@@ -166,7 +168,7 @@ if __name__ == "__main__":
         head_dim=128,
         dtype_bytes=2,
         num_experts=8,
-        moe_layers=[4, 8, 16, 20],
+        # moe_layers=[4, 8, 16, 20],
     )
 
     device = DeviceConfig(id=0, type=DeviceType.GPU, memory_capacity=16384, memory_bandwidth=900, compute_flops=1e12)
