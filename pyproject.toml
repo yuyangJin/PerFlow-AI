@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perflowai"
+version = "0.0.1"
+dependencies = [
+    "drawsvg",
+    "numpy",
+    "pytest",
+    "matplotlib",
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+
+[project.urls]
+Homepage = "https://github.com/yuyangJin/PerFlow-AI"
