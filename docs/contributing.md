@@ -29,7 +29,7 @@ pre-commit install
 pre-commit run --all-files
 
 # Unit tests
-pytest tests/
+python -m pytest tests/
 ```
 
 
