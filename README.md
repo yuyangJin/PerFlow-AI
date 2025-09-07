@@ -13,12 +13,12 @@ We welcome AI system researchers to use it, and we welcome everyone to provide v
 
 ### 0. Installation
 ```
-pip install .
+pip install -e .
 ```
 
 ### 1. Test
 ```
-pytest tests/
+python -m pytest tests/
 ```
 
 ### 2. Usage
