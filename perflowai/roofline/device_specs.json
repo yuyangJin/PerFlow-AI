@@ -1,0 +1,73 @@
+{
+  "GPU": {
+    "NVIDIA_H100": {
+      "SXM5_80GB": {
+        "compute": {
+          "FP64_TFLOPS": 60,
+          "FP32_TFLOPS": 500,
+          "FP16_TFLOPS": 1000,
+          "FP8_TFLOPS": 2000,
+          "INT8_TOPS": 2000
+        },
+        "memory_bandwidth_TBps": 3
+      },
+      "PCIe_80GB": {
+        "compute": {
+          "FP64_TFLOPS": 48,
+          "FP32_TFLOPS": 400,
+          "FP16_TFLOPS": 800,
+          "FP8_TFLOPS": 1600,
+          "INT8_TOPS": 1600
+        },
+        "memory_bandwidth_TBps": 2
+      }
+    },
+    "NVIDIA_A100": {
+      "SXM4_80GB": {
+        "compute": {
+          "FP64_TFLOPS": 19.5,
+          "FP32_TFLOPS": 312,
+          "FP16_TFLOPS": 624,
+          "INT8_TOPS": 1248
+        },
+        "memory_bandwidth_TBps": 2.039
+      },
+      "SXM4_40GB": {
+        "compute": {
+          "FP64_TFLOPS": 19.5,
+          "FP32_TFLOPS": 312,
+          "FP16_TFLOPS": 624,
+          "INT8_TOPS": 1248
+        },
+        "memory_bandwidth_TBps": 1.555
+      },
+      "PCIe_80GB": {
+        "compute": {
+          "FP64_TFLOPS": 19.5,
+          "FP32_TFLOPS": 312,
+          "FP16_TFLOPS": 624,
+          "INT8_TOPS": 1248
+        },
+        "memory_bandwidth_TBps": 1.555
+      }
+    }
+  },
+  "CPU": {
+    "Intel_Xeon_Platinum_8480": {
+      "compute": {
+        "FP64_TFLOPS": 2.5,
+        "FP32_TFLOPS": 5.0,
+        "FP16_TFLOPS": 10.0
+      },
+      "memory_bandwidth_TBps": 0.3
+    },
+    "AMD_EPYC_9754": {
+      "compute": {
+        "FP64_TFLOPS": 3.0,
+        "FP32_TFLOPS": 6.0,
+        "FP16_TFLOPS": 12.0
+      },
+      "memory_bandwidth_TBps": 0.35
+    }
+  }
+}
