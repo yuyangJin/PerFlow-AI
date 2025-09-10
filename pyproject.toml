@@ -14,5 +14,14 @@ dependencies = [
 readme = "README.md"
 license = {file = "LICENSE"}
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+roofline = [
+    "torch>=2.0",
+]
+all = ["perflowai[dev], perflowai[roofline]"]
+
 [project.urls]
 Homepage = "https://github.com/yuyangJin/PerFlow-AI"
