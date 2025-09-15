@@ -297,7 +297,12 @@ class RooflineProfiler:
                 parent_node = nodes[node.parent_id]
                 parent_node.children.append(node)
 
-        batchsize = root.input_info[0]['shape'][0]
+        try: 
+            batchsize = root.input_info[0]['shape'][0]
+            if batchsize is None:
+                batchsize = root.children[0].input_info[0]['shape'][0]
+        except:
+            pass
         model_name = root.name
 
         if batchsize is None:
