@@ -4,7 +4,7 @@
 
 Roofline profiling is a performance analysis technique used to measure program performance on specific hardware platforms. It helps identify whether an application is compute-bound or memory-bound by comparing achieved performance against hardware capabilities.
 
-![](./Rank0_Device0_DP-1_TP0_EP0_PP0_Qwen2MoeModel_378_1.png)
+![](./Rank0_Device0_DP-1_TP0_EP0_PP0_Qwen2MoeModel_21_901.png)
 
 ## Install
 
