@@ -21,7 +21,10 @@ dev = [
 roofline = [
     "torch>=2.0",
 ]
-all = ["perflowai[dev], perflowai[roofline]"]
+all = [
+    "perflowai[dev]",
+    "perflowai[roofline]",
+]
 
 [project.urls]
 Homepage = "https://github.com/yuyangJin/PerFlow-AI"
