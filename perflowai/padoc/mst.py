@@ -243,7 +243,7 @@ class ModelStructureTree:
         return ModelStructureTree.from_dict(data)
     
     @staticmethod
-    def from_torch_fx_graph(graph, model_name: str = 'model') -> 'ModelStructureTree':
+    def from_torch_fx_graph(graph, model_name: str = 'model', merge_similar_layers: bool = True) -> 'ModelStructureTree':
         '''
         Build hierarchical MST from a torch.fx graph.
         
@@ -251,10 +251,12 @@ class ModelStructureTree:
         - Module calls create parent nodes with their operations as children
         - Sequential operations are grouped under their respective modules
         - Input/output nodes are top-level
+        - Similar layers can be merged into loop structures (optional)
         
         Args:
             graph: torch.fx.Graph object from symbolic_trace
             model_name: Name of the model (default: 'model')
+            merge_similar_layers: Whether to merge similar sequential layers into loops (default: True)
             
         Returns:
             ModelStructureTree with hierarchical structure
@@ -272,16 +274,59 @@ class ModelStructureTree:
         fx_node_to_mst = {}
         module_nodes = {}  # Map module paths to MST nodes
         
-        # First pass: Create module hierarchy
+        # First pass: Create module hierarchy and detect repeated patterns
+        module_list = []
+        for fx_node in graph.nodes:
+            if fx_node.op == 'call_module' and fx_node.target:
+                module_path = str(fx_node.target)
+                module_list.append(module_path)
+        
+        # Detect repeated module patterns (e.g., layers.0, layers.1, layers.2)
+        loop_groups = {}
+        if merge_similar_layers:
+            loop_groups = ModelStructureTree._detect_loop_patterns(module_list)
+        
+        # Build module hierarchy with loops
         for fx_node in graph.nodes:
             if fx_node.op == 'call_module' and fx_node.target:
                 module_path = str(fx_node.target)
                 parts = module_path.split('.')
                 
+                # Check if this module is part of a loop
+                loop_parent = None
+                for loop_prefix, loop_info in loop_groups.items():
+                    if module_path in loop_info['members']:
+                        # Get or create loop node
+                        if loop_prefix not in module_nodes:
+                            # Determine parent for loop node
+                            parent_parts = loop_prefix.split('.')[:-1]
+                            if parent_parts:
+                                parent_path = '.'.join(parent_parts)
+                                if parent_path in module_nodes:
+                                    loop_parent_id = module_nodes[parent_path].node_id
+                                else:
+                                    loop_parent_id = model_node.node_id
+                            else:
+                                loop_parent_id = model_node.node_id
+                            
+                            # Create loop node
+                            loop_node = mst.add_node(f"{loop_info['name']}_loop", 'loop', loop_parent_id)
+                            loop_node.add_attribute('loop_count', loop_info['count'])
+                            loop_node.add_attribute('loop_pattern', loop_prefix)
+                            loop_node.set_call_stack([model_name] + loop_prefix.split('.') + ['loop'])
+                            module_nodes[loop_prefix] = loop_node
+                        
+                        loop_parent = module_nodes[loop_prefix].node_id
+                        break
+                
                 # Build hierarchy for nested modules
-                current_parent = model_node.node_id
+                current_parent = loop_parent if loop_parent else model_node.node_id
                 for i, part in enumerate(parts):
                     path_so_far = '.'.join(parts[:i+1])
+                    
+                    # Skip if already in a loop and this is the loop level
+                    if loop_parent and path_so_far in loop_groups:
+                        continue
                     
                     if path_so_far not in module_nodes:
                         # Create module node
@@ -351,6 +396,71 @@ class ModelStructureTree:
         
         return mst
     
+    @staticmethod
+    def _detect_loop_patterns(module_list: List[str]) -> Dict[str, Dict]:
+        '''
+        Detect repeated module patterns that can be merged into loops.
+        
+        For example, if we have:
+        - layers.0.linear
+        - layers.1.linear
+        - layers.2.linear
+        
+        This will be detected as a loop pattern "layers.{i}" with count=3
+        
+        Args:
+            module_list: List of module paths
+            
+        Returns:
+            Dictionary mapping loop prefix to loop info
+        '''
+        import re
+        
+        # Find patterns like "layers.0", "layers.1", "layers.2"
+        pattern_groups = {}
+        
+        for module_path in module_list:
+            parts = module_path.split('.')
+            
+            # Look for numeric indices
+            for i, part in enumerate(parts):
+                if part.isdigit():
+                    # Found a numeric index
+                    prefix_parts = parts[:i]
+                    suffix_parts = parts[i+1:]
+                    
+                    prefix = '.'.join(prefix_parts) if prefix_parts else 'root'
+                    suffix = '.'.join(suffix_parts) if suffix_parts else ''
+                    
+                    key = (prefix, suffix)
+                    if key not in pattern_groups:
+                        pattern_groups[key] = []
+                    pattern_groups[key].append((int(part), module_path))
+                    break
+        
+        # Filter groups with at least 2 members and consecutive indices
+        loop_groups = {}
+        for (prefix, suffix), members in pattern_groups.items():
+            if len(members) < 2:
+                continue
+            
+            # Sort by index
+            members.sort(key=lambda x: x[0])
+            indices = [m[0] for m in members]
+            paths = [m[1] for m in members]
+            
+            # Check if indices are consecutive
+            if indices == list(range(indices[0], indices[-1] + 1)):
+                loop_prefix = prefix if prefix != 'root' else paths[0].split('.')[0]
+                loop_groups[loop_prefix] = {
+                    'name': loop_prefix.split('.')[-1] if '.' in loop_prefix else loop_prefix,
+                    'count': len(members),
+                    'members': paths,
+                    'indices': indices
+                }
+        
+        return loop_groups
+    
     def visualize_graphviz(self, output_path: str = 'mst', format: str = 'pdf'):
         '''
         Visualize the MST using Graphviz and save as PDF or other formats.
@@ -378,6 +488,7 @@ class ModelStructureTree:
             'root': '#E8E8E8',           # Light gray
             'model': '#4A90E2',          # Professional blue
             'module': '#7CB342',         # Nature green
+            'loop': '#FFA726',           # Warm orange for loops
             'operation': '#F4A460',      # Soft orange
             'operator': '#E57373',       # Coral red
             'function': '#9C64A6',       # Muted purple
@@ -397,11 +508,15 @@ class ModelStructureTree:
             
             # Create label with node name (text outside circle)
             label = node.name
-            if len(label) > 20:
-                label = label[:17] + '...'
+            if node.node_type == 'loop' and 'loop_count' in node.attributes:
+                label = f"{label}\n(i=0..{node.attributes['loop_count']-1})"
+            if len(label) > 30:
+                label = label[:27] + '...'
             
             # Add tooltip with more info
             tooltip = f"{node.name}\\nType: {node.node_type}"
+            if node.node_type == 'loop' and 'loop_count' in node.attributes:
+                tooltip += f"\\nIterations: {node.attributes['loop_count']}"
             if node.trace_events:
                 tooltip += f"\\nEvents: {len(node.trace_events)}"
             
@@ -411,7 +526,11 @@ class ModelStructureTree:
             
             # Add edges to children
             for child in node.children:
-                dot.edge(node_id, str(child.node_id))
+                # Use dashed edge for loop iterations
+                if node.node_type == 'loop':
+                    dot.edge(node_id, str(child.node_id), style='dashed')
+                else:
+                    dot.edge(node_id, str(child.node_id))
                 add_nodes(child)
         
         add_nodes(self.root)
