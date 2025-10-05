@@ -118,7 +118,17 @@ def step1_extract_mst_from_torchfx(model):
     traced_model = fx.symbolic_trace(simple_model)
     print("   ✓ Model traced successfully")
     
-    print("\n1.2 Building hierarchical MST from torch.fx graph with loop merging...")
+    print("\n1.2 Analyzing torch.fx graph structure...")
+    # Extract module paths to show what we're working with
+    module_paths = []
+    for node in traced_model.graph.nodes:
+        if node.op == 'call_module' and node.target:
+            module_paths.append(str(node.target))
+    print(f"   Found {len(module_paths)} module calls:")
+    for path in sorted(set(module_paths)):
+        print(f"     - {path}")
+    
+    print("\n1.3 Building hierarchical MST from torch.fx graph with loop merging...")
     mst = ModelStructureTree.from_torch_fx_graph(
         traced_model.graph, 
         'SimpleFFNWithLayers',
@@ -132,14 +142,17 @@ def step1_extract_mst_from_torchfx(model):
         print(f"   ✓ Loop merging active: {len(loop_nodes)} loop node(s) created")
         for loop_node in loop_nodes:
             loop_count = loop_node.attributes.get('loop_count', 0)
-            print(f"     - {loop_node.name}: {loop_count} iterations")
+            start_idx = loop_node.attributes.get('start_index', 0)
+            end_idx = loop_node.attributes.get('end_index', loop_count-1)
+            print(f"     - {loop_node.name}: {loop_count} iterations (indices {start_idx}..{end_idx})")
     else:
-        print("   ℹ No repeated patterns detected for loop merging")
+        print("   ⚠ No repeated patterns detected for loop merging")
+        print("   This may indicate the model structure doesn't have sequential indexed layers")
     
-    print("\n1.3 Hierarchical MST Structure:")
+    print("\n1.4 Hierarchical MST Structure:")
     print(mst.visualize())
     
-    print("\n1.4 Analyzing hierarchy depth...")
+    print("\n1.5 Analyzing hierarchy depth...")
     max_depth = max(len(node.call_stack) for node in mst.nodes.values() if node.call_stack)
     module_count = sum(1 for node in mst.nodes.values() if node.node_type == 'module')
     print(f"   Maximum depth: {max_depth}")
@@ -147,7 +160,7 @@ def step1_extract_mst_from_torchfx(model):
     print(f"   Loop nodes: {len(loop_nodes)}")
     print(f"   Total nodes: {len(mst.nodes)}")
     
-    print("\n1.5 Generating hierarchical MST visualization...")
+    print("\n1.6 Generating hierarchical MST visualization...")
     viz_path = '/tmp/padoc_e2e_mst'
     mst.visualize_graphviz(viz_path, format='pdf')
     print(f"   ✓ Hierarchical visualization saved: {viz_path}.pdf")

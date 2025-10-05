@@ -294,29 +294,42 @@ class ModelStructureTree:
                 
                 # Check if this module is part of a loop
                 loop_parent = None
+                loop_prefix_key = None
                 for loop_prefix, loop_info in loop_groups.items():
                     if module_path in loop_info['members']:
                         # Get or create loop node
-                        if loop_prefix not in module_nodes:
+                        loop_key = f"_loop_{loop_prefix}" if loop_prefix else f"_loop_{loop_info['name']}"
+                        if loop_key not in module_nodes:
                             # Determine parent for loop node
-                            parent_parts = loop_prefix.split('.')[:-1]
-                            if parent_parts:
+                            if loop_prefix and '.' in loop_prefix:
+                                parent_parts = loop_prefix.split('.')[:-1]
                                 parent_path = '.'.join(parent_parts)
                                 if parent_path in module_nodes:
                                     loop_parent_id = module_nodes[parent_path].node_id
                                 else:
                                     loop_parent_id = model_node.node_id
                             else:
+                                # Top-level loop or no prefix
                                 loop_parent_id = model_node.node_id
                             
-                            # Create loop node
-                            loop_node = mst.add_node(f"{loop_info['name']}_loop", 'loop', loop_parent_id)
+                            # Create loop node with start and end indices
+                            loop_name = f"{loop_info['name']}_loop"
+                            loop_node = mst.add_node(loop_name, 'loop', loop_parent_id)
                             loop_node.add_attribute('loop_count', loop_info['count'])
-                            loop_node.add_attribute('loop_pattern', loop_prefix)
-                            loop_node.set_call_stack([model_name] + loop_prefix.split('.') + ['loop'])
-                            module_nodes[loop_prefix] = loop_node
+                            loop_node.add_attribute('loop_pattern', loop_prefix if loop_prefix else loop_info['name'])
+                            loop_node.add_attribute('start_index', loop_info.get('start_index', 0))
+                            loop_node.add_attribute('end_index', loop_info.get('end_index', loop_info['count']-1))
+                            
+                            # Set call stack
+                            if loop_prefix:
+                                call_stack_parts = loop_prefix.split('.') + [loop_name]
+                            else:
+                                call_stack_parts = [loop_name]
+                            loop_node.set_call_stack([model_name] + call_stack_parts)
+                            module_nodes[loop_key] = loop_node
                         
-                        loop_parent = module_nodes[loop_prefix].node_id
+                        loop_parent = module_nodes[loop_key].node_id
+                        loop_prefix_key = loop_key
                         break
                 
                 # Build hierarchy for nested modules
@@ -324,8 +337,17 @@ class ModelStructureTree:
                 for i, part in enumerate(parts):
                     path_so_far = '.'.join(parts[:i+1])
                     
-                    # Skip if already in a loop and this is the loop level
-                    if loop_parent and path_so_far in loop_groups:
+                    # Skip if this path is part of a loop group (we already created the loop node)
+                    skip_this_level = False
+                    if loop_prefix_key:
+                        # Check if this path should be skipped because it's at the loop level
+                        for loop_prefix, loop_info in loop_groups.items():
+                            if path_so_far in loop_info['members']:
+                                # This is one of the loop members, add it under the loop node
+                                skip_this_level = False
+                                break
+                    
+                    if skip_this_level:
                         continue
                     
                     if path_so_far not in module_nodes:
@@ -401,63 +423,92 @@ class ModelStructureTree:
         '''
         Detect repeated module patterns that can be merged into loops.
         
-        For example, if we have:
-        - layers.0.linear
-        - layers.1.linear
-        - layers.2.linear
-        
-        This will be detected as a loop pattern "layers.{i}" with count=3
+        Detects patterns in two ways:
+        1. Direct numeric indexing: layers.0, layers.1, layers.2 (same level)
+        2. Nested indexing: layers.0.linear, layers.1.linear (with submodules)
         
         Args:
-            module_list: List of module paths
+            module_list: List of module paths from torch.fx graph
             
         Returns:
             Dictionary mapping loop prefix to loop info
         '''
         import re
         
-        # Find patterns like "layers.0", "layers.1", "layers.2"
-        pattern_groups = {}
+        # Strategy 1: Group by parent prefix and numeric child
+        # This handles cases like: layers.0, layers.1, layers.2, layers.3
+        parent_groups = {}
         
         for module_path in module_list:
             parts = module_path.split('.')
             
-            # Look for numeric indices
+            # Check each level for numeric indices
             for i, part in enumerate(parts):
                 if part.isdigit():
-                    # Found a numeric index
+                    # Found a numeric index at position i
                     prefix_parts = parts[:i]
-                    suffix_parts = parts[i+1:]
+                    prefix = '.'.join(prefix_parts) if prefix_parts else ''
                     
-                    prefix = '.'.join(prefix_parts) if prefix_parts else 'root'
-                    suffix = '.'.join(suffix_parts) if suffix_parts else ''
+                    # Group by (parent_prefix, depth, has_children)
+                    # This ensures we only merge at the same structural level
+                    has_children = i < len(parts) - 1
+                    suffix_pattern = '.'.join(parts[i+1:]) if has_children else ''
                     
-                    key = (prefix, suffix)
-                    if key not in pattern_groups:
-                        pattern_groups[key] = []
-                    pattern_groups[key].append((int(part), module_path))
+                    key = (prefix, i, suffix_pattern)
+                    if key not in parent_groups:
+                        parent_groups[key] = []
+                    parent_groups[key].append((int(part), module_path))
+                    
+                    # Only process the first numeric level found in each path
                     break
         
-        # Filter groups with at least 2 members and consecutive indices
+        # Build loop groups from detected patterns
         loop_groups = {}
-        for (prefix, suffix), members in pattern_groups.items():
+        for (prefix, depth, suffix_pattern), members in parent_groups.items():
             if len(members) < 2:
                 continue
             
-            # Sort by index
+            # Sort by numeric index
             members.sort(key=lambda x: x[0])
             indices = [m[0] for m in members]
             paths = [m[1] for m in members]
             
-            # Check if indices are consecutive
-            if indices == list(range(indices[0], indices[-1] + 1)):
-                loop_prefix = prefix if prefix != 'root' else paths[0].split('.')[0]
-                loop_groups[loop_prefix] = {
-                    'name': loop_prefix.split('.')[-1] if '.' in loop_prefix else loop_prefix,
-                    'count': len(members),
-                    'members': paths,
-                    'indices': indices
-                }
+            # Check if indices are consecutive starting from 0 or any number
+            min_idx, max_idx = min(indices), max(indices)
+            expected_indices = list(range(min_idx, max_idx + 1))
+            
+            if indices == expected_indices:
+                # Determine the loop name
+                if prefix:
+                    loop_prefix = prefix
+                    loop_name = prefix.split('.')[-1]
+                else:
+                    # No prefix, use the common part from first path
+                    first_parts = paths[0].split('.')
+                    # Find the part before the numeric index
+                    for i, part in enumerate(first_parts):
+                        if part == str(indices[0]):
+                            if i > 0:
+                                loop_name = first_parts[i-1]
+                                loop_prefix = '.'.join(first_parts[:i])
+                            else:
+                                loop_name = 'layer'
+                                loop_prefix = 'layers'
+                            break
+                    else:
+                        loop_name = 'layer'
+                        loop_prefix = 'layers'
+                
+                # Only create loop group if we have consecutive members
+                if len(members) >= 2:
+                    loop_groups[loop_prefix] = {
+                        'name': loop_name,
+                        'count': len(members),
+                        'members': paths,
+                        'indices': indices,
+                        'start_index': min_idx,
+                        'end_index': max_idx
+                    }
         
         return loop_groups
     
