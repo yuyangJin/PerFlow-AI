@@ -6,6 +6,19 @@ The MST represents the hierarchical structure of a model with call stacks.
 from typing import List, Dict, Optional, Any
 import json
 
+try:
+    import torch
+    import torch.fx as fx
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+try:
+    import graphviz
+    GRAPHVIZ_AVAILABLE = True
+except ImportError:
+    GRAPHVIZ_AVAILABLE = False
+
 class MSTNode:
     '''
     A node in the Model Structure Tree representing an operation or module.
@@ -228,6 +241,136 @@ class ModelStructureTree:
         with open(filepath, 'r') as f:
             data = json.load(f)
         return ModelStructureTree.from_dict(data)
+    
+    @staticmethod
+    def from_torch_fx_graph(graph, model_name: str = 'model') -> 'ModelStructureTree':
+        '''
+        Build MST from a torch.fx graph.
+        
+        Args:
+            graph: torch.fx.Graph object from symbolic_trace
+            model_name: Name of the model (default: 'model')
+            
+        Returns:
+            ModelStructureTree built from the graph
+        '''
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is not available. Please install torch to use this feature.")
+        
+        mst = ModelStructureTree()
+        
+        # Create a model node
+        model_node = mst.add_node(model_name, 'model', 0)
+        model_node.set_call_stack([model_name])
+        
+        # Track nodes by their fx node name for building edges
+        fx_node_to_mst = {}
+        
+        # Process each node in the graph
+        for fx_node in graph.nodes:
+            node_name = fx_node.name
+            node_op = fx_node.op
+            
+            # Determine node type based on operation
+            if node_op == 'placeholder':
+                node_type = 'input'
+            elif node_op == 'get_attr':
+                node_type = 'parameter'
+            elif node_op == 'call_function':
+                node_type = 'function'
+            elif node_op == 'call_method':
+                node_type = 'method'
+            elif node_op == 'call_module':
+                node_type = 'module'
+            elif node_op == 'output':
+                node_type = 'output'
+            else:
+                node_type = 'operation'
+            
+            # Create MST node
+            mst_node = mst.add_node(node_name, node_type, model_node.node_id)
+            
+            # Add attributes
+            mst_node.add_attribute('op', node_op)
+            if fx_node.target:
+                mst_node.add_attribute('target', str(fx_node.target))
+            
+            # Set call stack
+            call_stack = [model_name, node_name]
+            if node_op == 'call_module' and fx_node.target:
+                # Add module path to call stack
+                module_path = str(fx_node.target).split('.')
+                call_stack = [model_name] + module_path
+            mst_node.set_call_stack(call_stack)
+            
+            # Store mapping
+            fx_node_to_mst[node_name] = mst_node
+        
+        return mst
+    
+    def visualize_graphviz(self, output_path: str = 'mst', format: str = 'pdf'):
+        '''
+        Visualize the MST using Graphviz and save as PDF or other formats.
+        
+        Args:
+            output_path: Output file path (without extension)
+            format: Output format ('pdf', 'png', 'svg', etc.)
+            
+        Returns:
+            Path to the generated file
+        '''
+        if not GRAPHVIZ_AVAILABLE:
+            raise ImportError("Graphviz is not available. Please install graphviz: pip install graphviz")
+        
+        # Create a new directed graph
+        dot = graphviz.Digraph(comment='Model Structure Tree', format=format)
+        dot.attr(rankdir='TB')  # Top to bottom layout
+        dot.attr('node', shape='circle', style='filled', fixedsize='true', width='0.8', fontsize='10')
+        
+        # Define colors for different node types
+        type_colors = {
+            'root': '#e0e0e0',
+            'model': '#90caf9',
+            'module': '#81c784',
+            'operation': '#ffb74d',
+            'operator': '#ff8a65',
+            'function': '#ba68c8',
+            'method': '#9575cd',
+            'layer': '#4db6ac',
+            'group': '#aed581',
+            'input': '#fff59d',
+            'output': '#f48fb1',
+            'parameter': '#ce93d8',
+            'kernel': '#e57373'
+        }
+        
+        # Add nodes to the graph
+        def add_nodes(node: MSTNode):
+            node_id = str(node.node_id)
+            color = type_colors.get(node.node_type, '#b0bec5')
+            
+            # Create label with node name
+            label = node.name
+            if len(label) > 15:
+                label = label[:12] + '...'
+            
+            # Add tooltip with more info
+            tooltip = f"{node.name}\\nType: {node.node_type}"
+            if node.trace_events:
+                tooltip += f"\\nEvents: {len(node.trace_events)}"
+            
+            dot.node(node_id, label=label, fillcolor=color, tooltip=tooltip)
+            
+            # Add edges to children
+            for child in node.children:
+                dot.edge(node_id, str(child.node_id))
+                add_nodes(child)
+        
+        add_nodes(self.root)
+        
+        # Render the graph
+        output_file = dot.render(output_path, cleanup=True)
+        return output_file
         
     def __str__(self):
         return f"ModelStructureTree(nodes={len(self.nodes)})"

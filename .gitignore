@@ -17,3 +17,9 @@ sdist/
 
 # mypy
 .mypy_cache/
+
+# Generated visualization files
+mst_*.pdf
+mst_*.png
+mst_*.svg
+mst_visualization_screenshot.png

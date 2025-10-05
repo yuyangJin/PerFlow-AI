@@ -36,13 +36,123 @@ attention.set_call_stack(['model', 'layer', 'attention'])
 # Or build from TorchProfiler trace
 mst = MSTMapper.build_and_map_from_file('trace.json', trace)
 
-# Visualize
+# Build from torch.fx symbolic trace
+import torch.fx as fx
+traced_model = fx.symbolic_trace(model)
+mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'MyModel')
+
+# Text visualization
 print(mst.visualize())
+
+# Graphviz visualization (PDF, PNG, SVG)
+mst.visualize_graphviz('output_path', format='pdf')  # Generates tree with colored circles
+mst.visualize_graphviz('output_path', format='png')  # PNG output
+mst.visualize_graphviz('output_path', format='svg')  # SVG output
 
 # Save/Load
 mst.to_json('mst.json')
 loaded_mst = ModelStructureTree.from_json('mst.json')
 ```
+
+#### Building MST from torch.fx
+
+PADoC can automatically build an MST from a PyTorch model using `torch.fx.symbolic_trace`:
+
+```python
+import torch
+import torch.nn as nn
+import torch.fx as fx
+from perflowai.padoc import ModelStructureTree
+
+# Define your model
+class MyModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear1 = nn.Linear(10, 20)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(20, 5)
+    
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.relu(x)
+        x = self.linear2(x)
+        return x
+
+# Trace the model
+model = MyModel()
+traced_model = fx.symbolic_trace(model)
+
+# Build MST from the graph
+mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'MyModel')
+
+# The MST will contain nodes for:
+# - Input placeholders
+# - Module calls (linear1, relu, linear2)
+# - Function calls
+# - Output nodes
+# Each node has a call stack set automatically
+```
+
+#### Graphviz Visualization
+
+PADoC provides high-quality tree visualizations using Graphviz:
+
+- **Small circles** represent nodes
+- **Different colors** for different node types (module, operation, input, output, etc.)
+- **Tree layout** shows hierarchical structure
+- **Tooltips** provide additional information
+
+```python
+# Generate PDF visualization
+pdf_file = mst.visualize_graphviz('mst_output', format='pdf')
+# Creates: mst_output.pdf
+
+# Generate PNG for embedding in documents
+png_file = mst.visualize_graphviz('mst_output', format='png')
+# Creates: mst_output.png
+
+# Generate SVG for web viewing
+svg_file = mst.visualize_graphviz('mst_output', format='svg')
+# Creates: mst_output.svg
+```
+
+Node type colors:
+- Root: Gray (#e0e0e0)
+- Model: Blue (#90caf9)
+- Module: Green (#81c784)
+- Operation: Orange (#ffb74d)
+- Function: Purple (#ba68c8)
+- Input: Yellow (#fff59d)
+- Output: Pink (#f48fb1)
+- And more...
+
+#### Mapping TorchProfiler Traces to MST
+
+PADoC can map TorchProfiler JSON trace files to MST nodes using call stacks:
+
+```python
+from perflowai.padoc import MSTMapper
+
+# Build MST and map trace events automatically
+mst = MSTMapper.build_and_map_from_file('torchprofiler_trace.json', trace)
+
+# Or map manually using call stacks
+event_id = 123
+call_stack = ['model', 'layer1', 'attention', 'forward']
+matched_node = mst.map_trace_events_by_callstack(event_id, call_stack)
+
+# The matched node will contain the mapped event IDs
+print(f"Mapped events: {matched_node.trace_events}")
+
+# Visualize with trace event counts
+print(mst.visualize())  # Shows [events: N] for nodes with mapped events
+```
+
+The mapping algorithm:
+1. Extracts call stacks from TorchProfiler trace events
+2. Finds MST nodes with matching call stack prefixes
+3. Maps events to the most specific (deepest) matching node
+4. Stores event IDs in the MST node for later analysis
 
 ### Part 2: Compression
 
