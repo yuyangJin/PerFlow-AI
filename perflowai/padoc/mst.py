@@ -322,44 +322,49 @@ class ModelStructureTree:
         if not GRAPHVIZ_AVAILABLE:
             raise ImportError("Graphviz is not available. Please install graphviz: pip install graphviz")
         
-        # Create a new directed graph
+        # Create a new directed graph with improved aesthetics
         dot = graphviz.Digraph(comment='Model Structure Tree', format=format)
         dot.attr(rankdir='TB')  # Top to bottom layout
-        dot.attr('node', shape='circle', style='filled', fixedsize='true', width='0.8', fontsize='10')
+        dot.attr('node', shape='circle', style='filled', fixedsize='true', 
+                 width='0.4', height='0.4', fontsize='9', labelloc='b')
+        dot.attr('edge', color='#666666', penwidth='1.5')
         
-        # Define colors for different node types
+        # Nature paper inspired color palette (elegant, professional)
+        # Based on Nature journal figure guidelines - softer, more refined colors
         type_colors = {
-            'root': '#e0e0e0',
-            'model': '#90caf9',
-            'module': '#81c784',
-            'operation': '#ffb74d',
-            'operator': '#ff8a65',
-            'function': '#ba68c8',
-            'method': '#9575cd',
-            'layer': '#4db6ac',
-            'group': '#aed581',
-            'input': '#fff59d',
-            'output': '#f48fb1',
-            'parameter': '#ce93d8',
-            'kernel': '#e57373'
+            'root': '#E8E8E8',           # Light gray
+            'model': '#4A90E2',          # Professional blue
+            'module': '#7CB342',         # Nature green
+            'operation': '#F4A460',      # Soft orange
+            'operator': '#E57373',       # Coral red
+            'function': '#9C64A6',       # Muted purple
+            'method': '#BA68C8',         # Light purple
+            'layer': '#26A69A',          # Teal
+            'group': '#8BC34A',          # Light green
+            'input': '#FDD835',          # Warm yellow
+            'output': '#EC407A',         # Pink
+            'parameter': '#AB47BC',      # Deep purple
+            'kernel': '#EF5350'          # Red
         }
         
         # Add nodes to the graph
         def add_nodes(node: MSTNode):
             node_id = str(node.node_id)
-            color = type_colors.get(node.node_type, '#b0bec5')
+            color = type_colors.get(node.node_type, '#9E9E9E')
             
-            # Create label with node name
+            # Create label with node name (text outside circle)
             label = node.name
-            if len(label) > 15:
-                label = label[:12] + '...'
+            if len(label) > 20:
+                label = label[:17] + '...'
             
             # Add tooltip with more info
             tooltip = f"{node.name}\\nType: {node.node_type}"
             if node.trace_events:
                 tooltip += f"\\nEvents: {len(node.trace_events)}"
             
-            dot.node(node_id, label=label, fillcolor=color, tooltip=tooltip)
+            # Empty label inside circle, actual label below (labelloc='b')
+            dot.node(node_id, label=label, fillcolor=color, tooltip=tooltip,
+                    fontcolor='#333333')
             
             # Add edges to children
             for child in node.children:

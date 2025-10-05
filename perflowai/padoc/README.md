@@ -95,10 +95,11 @@ mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'MyModel')
 
 #### Graphviz Visualization
 
-PADoC provides high-quality tree visualizations using Graphviz:
+PADoC provides high-quality tree visualizations using Graphviz with Nature paper inspired aesthetics:
 
-- **Small circles** represent nodes
-- **Different colors** for different node types (module, operation, input, output, etc.)
+- **Smaller circles** (0.4 units) for cleaner appearance
+- **Labels positioned outside circles** for better readability
+- **Nature paper color scheme** - elegant, professional colors
 - **Tree layout** shows hierarchical structure
 - **Tooltips** provide additional information
 
@@ -116,15 +117,22 @@ svg_file = mst.visualize_graphviz('mst_output', format='svg')
 # Creates: mst_output.svg
 ```
 
-Node type colors:
-- Root: Gray (#e0e0e0)
-- Model: Blue (#90caf9)
-- Module: Green (#81c784)
-- Operation: Orange (#ffb74d)
-- Function: Purple (#ba68c8)
-- Input: Yellow (#fff59d)
-- Output: Pink (#f48fb1)
+**Nature-inspired color palette** (professional, elegant):
+- Root: Light Gray (#E8E8E8)
+- Model: Professional Blue (#4A90E2)
+- Module: Nature Green (#7CB342)
+- Operation: Soft Orange (#F4A460)
+- Function: Muted Purple (#9C64A6)
+- Input: Warm Yellow (#FDD835)
+- Output: Pink (#EC407A)
+- Parameter: Deep Purple (#AB47BC)
 - And more...
+
+**Design improvements:**
+- Smaller circles (0.4 vs 0.8 units) reduce visual clutter
+- Text outside circles improves readability
+- Softer, more refined colors inspired by Nature journal guidelines
+- Professional appearance suitable for publications
 
 #### Mapping TorchProfiler Traces to MST
 
@@ -148,11 +156,37 @@ print(f"Mapped events: {matched_node.trace_events}")
 print(mst.visualize())  # Shows [events: N] for nodes with mapped events
 ```
 
-The mapping algorithm:
-1. Extracts call stacks from TorchProfiler trace events
-2. Finds MST nodes with matching call stack prefixes
-3. Maps events to the most specific (deepest) matching node
-4. Stores event IDs in the MST node for later analysis
+**Enhanced call stack extraction:**
+
+PADoC now supports advanced call stack reconstruction using TorchProfiler's Python id hierarchy:
+
+```python
+# TorchProfiler event structure with Python id/parent id
+{
+    "name": "attention_forward",
+    "ph": "X",
+    "cat": "python_function", 
+    "ts": 1020,
+    "dur": 30,
+    "args": {
+        "Python id": 3,           # Current call id
+        "Python parent id": 2,    # Parent call id
+        "External id": 102,
+        ...
+    }
+}
+```
+
+The enhanced mapper:
+1. Builds a parent-child relationship map using "Python id" and "Python parent id"
+2. Reconstructs full hierarchical call stacks by following parent chains
+3. Falls back to traditional "Python call stack" string parsing if ids not available
+4. Extracts call stacks from TorchProfiler trace events
+5. Finds MST nodes with matching call stack prefixes
+6. Maps events to the most specific (deepest) matching node
+7. Stores event IDs in the MST node for later analysis
+
+This provides more accurate hierarchical representation of nested function calls.
 
 ### Part 2: Compression
 

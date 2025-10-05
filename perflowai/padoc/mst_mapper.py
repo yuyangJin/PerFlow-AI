@@ -18,6 +18,7 @@ class MSTMapper:
     def extract_callstack_from_torchprofiler(trace_json: Dict) -> Dict[int, List[str]]:
         '''
         Extract call stacks from TorchProfiler JSON trace.
+        Uses Python parent id and Python id for better call stack reconstruction.
         
         Args:
             trace_json: Parsed TorchProfiler JSON
@@ -26,19 +27,56 @@ class MSTMapper:
             Dictionary mapping event index to call stack
         '''
         callstacks = {}
+        event_id_to_name = {}  # Map Python id to event name
+        event_id_to_parent = {}  # Map Python id to parent id
         
+        # First pass: build id mappings
         for i, event in enumerate(trace_json.get('traceEvents', [])):
-            # TorchProfiler events may have 'args' with stack information
             if 'args' in event:
+                python_id = event['args'].get('Python id')
+                python_parent_id = event['args'].get('Python parent id')
+                name = event.get('name', 'unknown')
+                
+                if python_id is not None:
+                    event_id_to_name[python_id] = name
+                    if python_parent_id is not None:
+                        event_id_to_parent[python_id] = python_parent_id
+        
+        # Second pass: reconstruct call stacks using parent relationships
+        for i, event in enumerate(trace_json.get('traceEvents', [])):
+            if 'args' in event:
+                # Try to use Python id/parent id for hierarchical call stack
+                python_id = event['args'].get('Python id')
+                
+                if python_id is not None and (python_id in event_id_to_name or python_id in event_id_to_parent):
+                    # Reconstruct call stack by following parent chain
+                    stack = []
+                    current_id = python_id
+                    visited = set()  # Prevent infinite loops
+                    
+                    while current_id is not None and current_id not in visited:
+                        visited.add(current_id)
+                        if current_id in event_id_to_name:
+                            stack.append(event_id_to_name[current_id])
+                        current_id = event_id_to_parent.get(current_id)
+                    
+                    # Reverse to get root-to-leaf order
+                    stack.reverse()
+                    if stack:
+                        callstacks[i] = stack
+                        continue
+                
+                # Fallback: try Python call stack string
                 stack_info = event['args'].get('Python call stack', '')
                 if stack_info:
                     # Parse the stack string into a list
                     stack = [line.strip() for line in stack_info.split('\n') if line.strip()]
                     callstacks[i] = stack
-                else:
-                    # Try to extract from name
-                    name = event.get('name', '')
-                    callstacks[i] = [name]
+                    continue
+                
+                # Fallback: use event name
+                name = event.get('name', '')
+                callstacks[i] = [name] if name else ['unknown']
             else:
                 # Use event name as minimal call stack
                 callstacks[i] = [event.get('name', 'unknown')]
