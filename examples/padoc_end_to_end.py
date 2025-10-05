@@ -89,29 +89,52 @@ def step1_extract_mst_from_torchfx(model):
     
     print("\n1.1 Tracing model with torch.fx...")
     # Note: MultiheadAttention cannot be traced directly, use simpler model
-    class SimpleFFN(nn.Module):
-        def __init__(self):
+    # Use a model with repeating layers to demonstrate loop merging
+    class SimpleLayer(nn.Module):
+        def __init__(self, dim):
             super().__init__()
-            self.fc1 = nn.Linear(256, 1024)
+            self.linear = nn.Linear(dim, dim)
             self.relu = nn.ReLU()
-            self.fc2 = nn.Linear(1024, 256)
-            self.norm = nn.LayerNorm(256)
             
         def forward(self, x):
-            residual = x
-            x = self.fc1(x)
-            x = self.relu(x)
-            x = self.fc2(x)
-            x = self.norm(x + residual)
+            return self.relu(self.linear(x))
+    
+    class SimpleFFNWithLayers(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embedding = nn.Linear(256, 256)
+            # Create repeating layers to demonstrate loop merging
+            self.layers = nn.ModuleList([SimpleLayer(256) for _ in range(4)])
+            self.output = nn.Linear(256, 256)
+            
+        def forward(self, x):
+            x = self.embedding(x)
+            for layer in self.layers:
+                x = layer(x)
+            x = self.output(x)
             return x
     
-    simple_model = SimpleFFN()
+    simple_model = SimpleFFNWithLayers()
     traced_model = fx.symbolic_trace(simple_model)
     print("   ✓ Model traced successfully")
     
-    print("\n1.2 Building hierarchical MST from torch.fx graph...")
-    mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'SimpleFFN')
+    print("\n1.2 Building hierarchical MST from torch.fx graph with loop merging...")
+    mst = ModelStructureTree.from_torch_fx_graph(
+        traced_model.graph, 
+        'SimpleFFNWithLayers',
+        merge_similar_layers=True  # Enable loop merging
+    )
     print(f"   ✓ Hierarchical MST built with {len(mst.nodes)} nodes")
+    
+    # Check if loop merging worked
+    loop_nodes = [node for node in mst.nodes.values() if node.node_type == 'loop']
+    if loop_nodes:
+        print(f"   ✓ Loop merging active: {len(loop_nodes)} loop node(s) created")
+        for loop_node in loop_nodes:
+            loop_count = loop_node.attributes.get('loop_count', 0)
+            print(f"     - {loop_node.name}: {loop_count} iterations")
+    else:
+        print("   ℹ No repeated patterns detected for loop merging")
     
     print("\n1.3 Hierarchical MST Structure:")
     print(mst.visualize())
@@ -121,12 +144,15 @@ def step1_extract_mst_from_torchfx(model):
     module_count = sum(1 for node in mst.nodes.values() if node.node_type == 'module')
     print(f"   Maximum depth: {max_depth}")
     print(f"   Module nodes: {module_count}")
+    print(f"   Loop nodes: {len(loop_nodes)}")
     print(f"   Total nodes: {len(mst.nodes)}")
     
     print("\n1.5 Generating hierarchical MST visualization...")
     viz_path = '/tmp/padoc_e2e_mst'
     mst.visualize_graphviz(viz_path, format='pdf')
     print(f"   ✓ Hierarchical visualization saved: {viz_path}.pdf")
+    if loop_nodes:
+        print("   ✓ Loop nodes shown in orange with dashed edges")
     
     return mst, simple_model
 
@@ -380,6 +406,7 @@ def main():
     print("="*70)
     print("• Hierarchical model structure representation (MST)")
     print("• Automatic model analysis with torch.fx")
+    print("• Loop merging for repeated sequential layers")
     print("• Accurate trace mapping with call stacks")
     print("• Lossless compression with high compression ratios")
     print("• O(1) random access to compressed events")
