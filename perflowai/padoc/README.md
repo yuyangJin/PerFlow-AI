@@ -54,15 +54,15 @@ attention.set_call_stack(['model', 'layer', 'attention'])
 # Or build from TorchProfiler trace
 mst = MSTMapper.build_and_map_from_file('trace.json', trace)
 
-# Build from torch.fx symbolic trace
+# Build from torch.fx symbolic trace (creates hierarchical structure)
 import torch.fx as fx
 traced_model = fx.symbolic_trace(model)
 mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'MyModel')
 
-# Text visualization
+# Text visualization (shows hierarchy with indentation)
 print(mst.visualize())
 
-# Graphviz visualization (PDF, PNG, SVG)
+# Graphviz visualization (hierarchical tree layout)
 mst.visualize_graphviz('output_path', format='pdf')  # Generates tree with colored circles
 mst.visualize_graphviz('output_path', format='png')  # PNG output
 mst.visualize_graphviz('output_path', format='svg')  # SVG output
@@ -74,7 +74,7 @@ loaded_mst = ModelStructureTree.from_json('mst.json')
 
 #### Building MST from torch.fx
 
-PADoC can automatically build an MST from a PyTorch model using `torch.fx.symbolic_trace`:
+PADoC automatically builds a **hierarchical MST** from a PyTorch model using `torch.fx.symbolic_trace`:
 
 ```python
 import torch
@@ -100,16 +100,29 @@ class MyModel(nn.Module):
 model = MyModel()
 traced_model = fx.symbolic_trace(model)
 
-# Build MST from the graph
+# Build hierarchical MST from the graph
 mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'MyModel')
 
-# The MST will contain nodes for:
-# - Input placeholders
-# - Module calls (linear1, relu, linear2)
-# - Function calls
-# - Output nodes
-# Each node has a call stack set automatically
+# The MST will contain a hierarchical structure:
+# MyModel (model)
+#   ├── linear1 (module)
+#   │   └── linear1_call (operation)
+#   ├── relu (module)
+#   │   └── relu_call (operation)
+#   ├── linear2 (module)
+#   │   └── linear2_call (operation)
+#   ├── x (input)
+#   └── output (output)
+
+# Each node has a call stack set automatically based on hierarchy
 ```
+
+**Hierarchical Features**:
+- Modules are organized in parent-child relationships
+- Operations are nested under their parent modules
+- Nested modules (e.g., `outer.inner.linear`) create multi-level hierarchy
+- Text visualization shows indentation based on depth
+- Graphviz visualization uses tree layout
 
 #### Graphviz Visualization
 

@@ -245,14 +245,19 @@ class ModelStructureTree:
     @staticmethod
     def from_torch_fx_graph(graph, model_name: str = 'model') -> 'ModelStructureTree':
         '''
-        Build MST from a torch.fx graph.
+        Build hierarchical MST from a torch.fx graph.
+        
+        Creates a proper hierarchy based on module structure:
+        - Module calls create parent nodes with their operations as children
+        - Sequential operations are grouped under their respective modules
+        - Input/output nodes are top-level
         
         Args:
             graph: torch.fx.Graph object from symbolic_trace
             model_name: Name of the model (default: 'model')
             
         Returns:
-            ModelStructureTree built from the graph
+            ModelStructureTree with hierarchical structure
         '''
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not available. Please install torch to use this feature.")
@@ -263,10 +268,31 @@ class ModelStructureTree:
         model_node = mst.add_node(model_name, 'model', 0)
         model_node.set_call_stack([model_name])
         
-        # Track nodes by their fx node name for building edges
+        # Track nodes by their fx node name and module paths
         fx_node_to_mst = {}
+        module_nodes = {}  # Map module paths to MST nodes
         
-        # Process each node in the graph
+        # First pass: Create module hierarchy
+        for fx_node in graph.nodes:
+            if fx_node.op == 'call_module' and fx_node.target:
+                module_path = str(fx_node.target)
+                parts = module_path.split('.')
+                
+                # Build hierarchy for nested modules
+                current_parent = model_node.node_id
+                for i, part in enumerate(parts):
+                    path_so_far = '.'.join(parts[:i+1])
+                    
+                    if path_so_far not in module_nodes:
+                        # Create module node
+                        module_node = mst.add_node(part, 'module', current_parent)
+                        module_node.add_attribute('module_path', path_so_far)
+                        module_node.set_call_stack([model_name] + parts[:i+1])
+                        module_nodes[path_so_far] = module_node
+                    
+                    current_parent = module_nodes[path_so_far].node_id
+        
+        # Second pass: Add operations under appropriate parents
         for fx_node in graph.nodes:
             node_name = fx_node.name
             node_op = fx_node.op
@@ -274,33 +300,50 @@ class ModelStructureTree:
             # Determine node type based on operation
             if node_op == 'placeholder':
                 node_type = 'input'
+                parent_id = model_node.node_id
             elif node_op == 'get_attr':
                 node_type = 'parameter'
+                parent_id = model_node.node_id
             elif node_op == 'call_function':
                 node_type = 'function'
+                parent_id = model_node.node_id
             elif node_op == 'call_method':
                 node_type = 'method'
+                parent_id = model_node.node_id
             elif node_op == 'call_module':
-                node_type = 'module'
+                # Module call - add as operation under the module
+                node_type = 'operation'
+                module_path = str(fx_node.target)
+                if module_path in module_nodes:
+                    parent_id = module_nodes[module_path].node_id
+                else:
+                    parent_id = model_node.node_id
             elif node_op == 'output':
                 node_type = 'output'
+                parent_id = model_node.node_id
             else:
                 node_type = 'operation'
+                parent_id = model_node.node_id
             
-            # Create MST node
-            mst_node = mst.add_node(node_name, node_type, model_node.node_id)
+            # Skip if this is just a module definition (already created)
+            if node_op == 'call_module' and str(fx_node.target) in module_nodes:
+                # Add operation node under the module
+                mst_node = mst.add_node(f"{node_name}_call", node_type, parent_id)
+            else:
+                # Create the node
+                mst_node = mst.add_node(node_name, node_type, parent_id)
             
             # Add attributes
             mst_node.add_attribute('op', node_op)
             if fx_node.target:
                 mst_node.add_attribute('target', str(fx_node.target))
             
-            # Set call stack
-            call_stack = [model_name, node_name]
-            if node_op == 'call_module' and fx_node.target:
-                # Add module path to call stack
-                module_path = str(fx_node.target).split('.')
-                call_stack = [model_name] + module_path
+            # Set call stack based on parent hierarchy
+            parent = mst.nodes[parent_id]
+            if parent.call_stack:
+                call_stack = parent.call_stack + [node_name]
+            else:
+                call_stack = [model_name, node_name]
             mst_node.set_call_stack(call_stack)
             
             # Store mapping

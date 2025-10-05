@@ -109,17 +109,24 @@ def step1_extract_mst_from_torchfx(model):
     traced_model = fx.symbolic_trace(simple_model)
     print("   ✓ Model traced successfully")
     
-    print("\n1.2 Building MST from torch.fx graph...")
+    print("\n1.2 Building hierarchical MST from torch.fx graph...")
     mst = ModelStructureTree.from_torch_fx_graph(traced_model.graph, 'SimpleFFN')
-    print(f"   ✓ MST built with {len(mst.nodes)} nodes")
+    print(f"   ✓ Hierarchical MST built with {len(mst.nodes)} nodes")
     
-    print("\n1.3 MST Structure:")
+    print("\n1.3 Hierarchical MST Structure:")
     print(mst.visualize())
     
-    print("\n1.4 Generating MST visualization...")
+    print("\n1.4 Analyzing hierarchy depth...")
+    max_depth = max(len(node.call_stack) for node in mst.nodes.values() if node.call_stack)
+    module_count = sum(1 for node in mst.nodes.values() if node.node_type == 'module')
+    print(f"   Maximum depth: {max_depth}")
+    print(f"   Module nodes: {module_count}")
+    print(f"   Total nodes: {len(mst.nodes)}")
+    
+    print("\n1.5 Generating hierarchical MST visualization...")
     viz_path = '/tmp/padoc_e2e_mst'
     mst.visualize_graphviz(viz_path, format='pdf')
-    print(f"   ✓ Visualization saved: {viz_path}.pdf")
+    print(f"   ✓ Hierarchical visualization saved: {viz_path}.pdf")
     
     return mst, simple_model
 
