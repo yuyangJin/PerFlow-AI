@@ -2,6 +2,23 @@
 
 PADoC is a novel compressed trace format that supports efficient direct analysis on compressed data. It combines linear prediction models with delta encoding to achieve lossless compression while maintaining constant-time (O(1)) random access capabilities.
 
+## Quick Start: End-to-End Example
+
+For a complete demonstration of the PADoC workflow, see:
+- **Example**: `examples/padoc_end_to_end.py` - Complete workflow from torch.fx to analysis
+- **Documentation**: `PADOC_END_TO_END.md` - Detailed documentation
+
+```bash
+python examples/padoc_end_to_end.py
+```
+
+This example demonstrates:
+1. MST extraction from torch.fx symbolic trace
+2. Trace collection with TorchProfiler
+3. Trace-to-MST mapping with call stacks
+4. Trace compression using linear prediction
+5. Performance analysis on compressed trace
+
 ## Overview
 
 PADoC consists of three main components:
@@ -17,6 +34,7 @@ PADoC consists of three main components:
 - **Direct Analysis**: Perform analytics without full decompression
 - **Multiple Strategies**: Intra/inter-microbatch/iteration/process compression
 - **Variable-Length Encoding**: Efficient storage using zigzag + LEB128-style encoding
+- **End-to-End Workflow**: Complete pipeline from model to analysis
 
 ## Architecture
 
