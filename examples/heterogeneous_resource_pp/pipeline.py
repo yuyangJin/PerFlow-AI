@@ -7,7 +7,7 @@ from perflowai.parallel.pipeline_parallel.gpipe import GPipeGraph
 from perflowai.parallel.pipeline_parallel.pipedream import PipeDreamGraph
 from perflowai.parallel.pipeline_parallel.interleaved1f1b import Interleaved1F1BGraph
 from perflowai.parallel.pipeline_parallel.zerobubble import ZeroBubbleGraph, ScheduleType
-from perflowai.simulator.pp_simulator import PPSimulator, PipeType
+from perflowai.simulator.pipeline.pp_simulator import PPSimulator, PipeType
 from perflowai.visualizer.trace_visualizer import TraceVisualizer
 from perflowai.trace_op.filter import Filter
 from perflowai.trace_op.merge import Merge
