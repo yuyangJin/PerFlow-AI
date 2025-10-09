@@ -287,77 +287,75 @@ class ModelStructureTree:
             loop_groups = ModelStructureTree._detect_loop_patterns(module_list)
         
         # Build module hierarchy with loops
+        # Strategy: Build normally, but when we encounter a module that should have a loop child,
+        # create the loop node and make subsequent numeric children go under it
         for fx_node in graph.nodes:
             if fx_node.op == 'call_module' and fx_node.target:
                 module_path = str(fx_node.target)
                 parts = module_path.split('.')
                 
-                # Check if this module is part of a loop
-                loop_parent = None
-                loop_prefix_key = None
+                # Check if this entire path is a loop member
+                is_loop_member = False
+                loop_prefix_for_this_path = None
                 for loop_prefix, loop_info in loop_groups.items():
                     if module_path in loop_info['members']:
-                        # Get or create loop node
-                        loop_key = f"_loop_{loop_prefix}" if loop_prefix else f"_loop_{loop_info['name']}"
-                        if loop_key not in module_nodes:
-                            # Determine parent for loop node
-                            if loop_prefix and '.' in loop_prefix:
-                                parent_parts = loop_prefix.split('.')[:-1]
-                                parent_path = '.'.join(parent_parts)
-                                if parent_path in module_nodes:
-                                    loop_parent_id = module_nodes[parent_path].node_id
-                                else:
-                                    loop_parent_id = model_node.node_id
-                            else:
-                                # Top-level loop or no prefix
-                                loop_parent_id = model_node.node_id
-                            
-                            # Create loop node with start and end indices
-                            loop_name = f"{loop_info['name']}_loop"
-                            loop_node = mst.add_node(loop_name, 'loop', loop_parent_id)
-                            loop_node.add_attribute('loop_count', loop_info['count'])
-                            loop_node.add_attribute('loop_pattern', loop_prefix if loop_prefix else loop_info['name'])
-                            loop_node.add_attribute('start_index', loop_info.get('start_index', 0))
-                            loop_node.add_attribute('end_index', loop_info.get('end_index', loop_info['count']-1))
-                            
-                            # Set call stack
-                            if loop_prefix:
-                                call_stack_parts = loop_prefix.split('.') + [loop_name]
-                            else:
-                                call_stack_parts = [loop_name]
-                            loop_node.set_call_stack([model_name] + call_stack_parts)
-                            module_nodes[loop_key] = loop_node
-                        
-                        loop_parent = module_nodes[loop_key].node_id
-                        loop_prefix_key = loop_key
+                        is_loop_member = True
+                        loop_prefix_for_this_path = loop_prefix
                         break
                 
-                # Build hierarchy for nested modules
-                current_parent = loop_parent if loop_parent else model_node.node_id
+                # Build hierarchy level by level
+                current_parent = model_node.node_id
                 for i, part in enumerate(parts):
                     path_so_far = '.'.join(parts[:i+1])
                     
-                    # Skip if this path is part of a loop group (we already created the loop node)
-                    skip_this_level = False
-                    if loop_prefix_key:
-                        # Check if this path should be skipped because it's at the loop level
+                    # Special handling: if next part is numeric and this path matches a loop prefix,
+                    # we need to create a loop node here
+                    if i + 1 < len(parts) and parts[i+1].isdigit():
+                        # Check if there's a loop for path_so_far
                         for loop_prefix, loop_info in loop_groups.items():
-                            if path_so_far in loop_info['members']:
-                                # This is one of the loop members, add it under the loop node
-                                skip_this_level = False
+                            if loop_prefix == path_so_far:
+                                # This is the parent of a loop! Create loop node if not exists
+                                loop_key = f"_loop_{loop_prefix}"
+                                
+                                # First ensure the current path exists
+                                if path_so_far not in module_nodes:
+                                    module_node = mst.add_node(part, 'module', current_parent)
+                                    module_node.add_attribute('module_path', path_so_far)
+                                    module_node.set_call_stack([model_name] + parts[:i+1])
+                                    module_nodes[path_so_far] = module_node
+                                
+                                # Now create loop node under it
+                                if loop_key not in module_nodes:
+                                    loop_name = f"{loop_info['name']}_loop"
+                                    loop_node = mst.add_node(loop_name, 'loop', module_nodes[path_so_far].node_id)
+                                    loop_node.add_attribute('loop_count', loop_info['count'])
+                                    loop_node.add_attribute('loop_pattern', loop_prefix)
+                                    loop_node.add_attribute('start_index', loop_info.get('start_index', 0))
+                                    loop_node.add_attribute('end_index', loop_info.get('end_index', loop_info['count']-1))
+                                    
+                                    call_stack_parts = parts[:i+1] + [loop_name]
+                                    loop_node.set_call_stack([model_name] + call_stack_parts)
+                                    module_nodes[loop_key] = loop_node
+                                
+                                # Set current parent to be under the loop for next iteration
+                                current_parent = module_nodes[loop_key].node_id
                                 break
-                    
-                    if skip_this_level:
-                        continue
-                    
-                    if path_so_far not in module_nodes:
-                        # Create module node
-                        module_node = mst.add_node(part, 'module', current_parent)
-                        module_node.add_attribute('module_path', path_so_far)
-                        module_node.set_call_stack([model_name] + parts[:i+1])
-                        module_nodes[path_so_far] = module_node
-                    
-                    current_parent = module_nodes[path_so_far].node_id
+                        else:
+                            # No loop found, process normally
+                            if path_so_far not in module_nodes:
+                                module_node = mst.add_node(part, 'module', current_parent)
+                                module_node.add_attribute('module_path', path_so_far)
+                                module_node.set_call_stack([model_name] + parts[:i+1])
+                                module_nodes[path_so_far] = module_node
+                            current_parent = module_nodes[path_so_far].node_id
+                    else:
+                        # Normal processing
+                        if path_so_far not in module_nodes:
+                            module_node = mst.add_node(part, 'module', current_parent)
+                            module_node.add_attribute('module_path', path_so_far)
+                            module_node.set_call_stack([model_name] + parts[:i+1])
+                            module_nodes[path_so_far] = module_node
+                        current_parent = module_nodes[path_so_far].node_id
         
         # Second pass: Add operations under appropriate parents
         for fx_node in graph.nodes:
