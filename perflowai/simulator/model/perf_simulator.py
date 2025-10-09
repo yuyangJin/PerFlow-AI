@@ -13,8 +13,8 @@ class PerfSimulator(Simulator):
     @method __init__
     Initialize the performance simulator.
     '''
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name='PerfSimulator', id=0):
+        super().__init__(name, id)
         self.trace = None
         self.perf = None
         self.config = None
@@ -36,7 +36,7 @@ class PerfSimulator(Simulator):
 
 class ModelPerfSimulator(PerfSimulator):
     def __init__(self, model_config: ModelConfig, device_config: DeviceConfig):
-        super().__init__()
+        super().__init__('ModelPerfSimulator', 0)
         self.m_model_config = model_config
         self.m_device_config = device_config
 

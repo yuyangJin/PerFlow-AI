@@ -13,7 +13,14 @@ from ...core import ModelConfig, EventType
 @class MemSimulator
 '''
 class MemSimulator(FlowNode):
-    def __init__(self):
+    def __init__(self, name='MemSimulator', id=0):
+        super().__init__(name, id, [], [])
+
+    def run(self, *args, **kwargs):
+        '''
+        Run the memory simulator.
+        To be implemented by subclasses.
+        '''
         pass
 
 # class OpMemSimulator(MemSimulator):
@@ -44,6 +51,7 @@ class MemSimulator(FlowNode):
 
 class ModelMemSimulator(MemSimulator):
     def __init__(self, model_config: ModelConfig):
+        super().__init__('ModelMemSimulator', 0)
         self.m_model_config = model_config
 
 

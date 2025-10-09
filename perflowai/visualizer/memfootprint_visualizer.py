@@ -11,7 +11,8 @@ from ..workflow import FlowNode
 '''
 
 class MemoryFootprintVisualizer(FlowNode):
-    def __init__(self, mem_fp):
+    def __init__(self, mem_fp, name='MemoryFootprintVisualizer', id=0):
+        super().__init__(name, id, [], [])
         self.mem_fp = mem_fp
 
     def visualize(self, base = None, PRINT_DETAIL = False):
@@ -41,3 +42,9 @@ class MemoryFootprintVisualizer(FlowNode):
         if PRINT_DETAIL:
             print("base memory: ", base)
             print("peak memory: ", peak)
+
+    def run(self, *args, **kwargs):
+        '''
+        Run the visualizer by calling visualize().
+        '''
+        self.visualize(*args, **kwargs)

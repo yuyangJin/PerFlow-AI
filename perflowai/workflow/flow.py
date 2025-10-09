@@ -31,9 +31,11 @@ class FlowNode(ABC):
     def get_outputs(self):
         return self.m_outputs
 
-    # @abstractmethod
-    def run(self):
-        print('FlowNode runs virtially.')
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        '''
+        Run the flow node.
+        '''
         pass
 
 '''
@@ -82,6 +84,9 @@ class FlowGraph:
         pass
 
     def run(self, *args, **kwargs):
+        '''
+        Run all nodes in the flow graph.
+        '''
         # visited = set()
 
         # def traverse(node_id):
@@ -96,5 +101,5 @@ class FlowGraph:
         # for node_id in self.m_nodes:
         #     traverse(node_id)
 
-        for node in self.nodes:
+        for node in self.m_nodes.values():
             node.run(*args, **kwargs)

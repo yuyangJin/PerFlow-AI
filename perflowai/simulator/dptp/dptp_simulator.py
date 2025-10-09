@@ -10,9 +10,13 @@ A data parallel simulator.
 '''
 class DPSimulator(Simulator):
     def __init__(self):
-        pass
+        super().__init__('DPSimulator', 0)
 
-    def simulate(self):
+    def simulate(self, *args, **kwargs):
+        '''
+        Simulate data parallelism.
+        To be implemented.
+        '''
         pass
 
 '''
@@ -21,18 +25,26 @@ A tensor parallel simulator.
 '''
 class TPSimulator(Simulator):
     def __init__(self):
-        pass
+        super().__init__('TPSimulator', 0)
 
-    def simulate(self):
+    def simulate(self, *args, **kwargs):
+        '''
+        Simulate tensor parallelism.
+        To be implemented.
+        '''
         pass
 
 '''
-@class TPDPPSimulator
+@class TPDPSimulator
 A tensor pipeline data parallel parallel simulator.
 '''
 class TPDPSimulator(Simulator):
     def __init__(self):
-        pass
+        super().__init__('TPDPSimulator', 0)
 
-    def simulate(self):
+    def simulate(self, *args, **kwargs):
+        '''
+        Simulate tensor, pipeline, and data parallelism.
+        To be implemented.
+        '''
         pass

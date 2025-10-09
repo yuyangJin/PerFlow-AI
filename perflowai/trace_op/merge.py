@@ -14,7 +14,13 @@ A graph Merger
 '''
 class Merge(FlowNode):
     def __init__(self):
-        pass
+        super().__init__('Merge', 0, [], [])
+    
+    def run(self, *args, **kwargs):
+        '''
+        Run the merge operation.
+        '''
+        return self.merge(*args, **kwargs)
     
     def merge_pp(self, graph_list, edge_list):
         '''

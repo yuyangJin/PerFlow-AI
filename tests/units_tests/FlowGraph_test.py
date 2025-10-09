@@ -4,10 +4,15 @@ test FlowGraph class
 
 from perflowai.workflow import FlowGraph, FlowNode
 
+class ConcreteFlowNode(FlowNode):
+    '''A concrete implementation of FlowNode for testing'''
+    def run(self, *args, **kwargs):
+        pass
+
 def test_FlowGraph():
     graph = FlowGraph()
-    graph.add_node(FlowNode("test0", 0, [], []))
-    graph.add_node(FlowNode("test1", 1, [], []))
+    graph.add_node(ConcreteFlowNode("test0", 0, [], []))
+    graph.add_node(ConcreteFlowNode("test1", 1, [], []))
     graph.add_edge(graph.get_node_by_id(0), graph.get_node_by_id(1))
     print(graph.m_edges)
     assert graph.get_node_by_id(0).m_name == "test0"

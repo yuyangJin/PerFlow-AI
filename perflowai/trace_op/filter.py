@@ -14,7 +14,13 @@ A graph Filter
 '''
 class Filter(FlowNode):
     def __init__(self):
-        pass
+        super().__init__('Filter', 0, [], [])
+    
+    def run(self, *args, **kwargs):
+        '''
+        Run the filter operation.
+        '''
+        return self.filter(*args, **kwargs)
     
     '''
         This function is used to filter out a subgraph from a given graph.

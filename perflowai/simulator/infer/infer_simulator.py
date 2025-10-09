@@ -19,6 +19,7 @@ class InferSimulator(Simulator):
     '''
 
     def __init__(self, graph, request):
+        super().__init__('InferSimulator', 0)
         self.m_graph = graph
         self.m_ndevs = graph.get_ndevs()
         self.m_request = request

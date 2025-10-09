@@ -19,7 +19,7 @@ A trace reader for TorchProfiler.
 
 class TorchProfilerTraceReader(TraceReader):
     def __init__(self, trace_path: str):
-        super().__init__('Torch Profiler Trace Reader', trace_path)
+        super().__init__('Torch Profiler Trace Reader', trace_path, 0)
         self.m_metadata = None
 
     def get_events(self, events):
