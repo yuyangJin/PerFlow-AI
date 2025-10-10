@@ -34,8 +34,17 @@ class TraceReader(FlowNode):
     def run(self):
         '''
         Run the trace reader by calling read().
+        Gets configuration from inputs if available, puts trace in outputs.
         '''
-        result = self.read([])
+        # Get event types from inputs if provided
+        event_types = []
+        if self.m_inputs.size() > 0:
+            input_data = list(self.m_inputs.get_data())
+            # Check if first input is a list of event types
+            if input_data and isinstance(input_data[0], list):
+                event_types = input_data[0]
+        
+        result = self.read(event_types)
         if result is not None:
             self.m_outputs.add_data(result)
         return result
