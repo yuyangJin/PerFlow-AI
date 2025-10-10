@@ -4,6 +4,7 @@
 
 from ..simulator import Simulator
 from ...core import ModelConfig, DeviceConfig, EventType
+from ..oprt import TransformerLayerOperator
 
 '''
 @class PerfSimulator
@@ -35,48 +36,63 @@ class PerfSimulator(Simulator):
 
 
 class ModelPerfSimulator(PerfSimulator):
+    """
+    Model-level performance simulator that computes FLOPs and memory access
+    using fine-grained operator-level calculations
+    """
     def __init__(self, model_config: ModelConfig, device_config: DeviceConfig):
         super().__init__()
         self.m_model_config = model_config
         self.m_device_config = device_config
+        # Create a transformer layer operator for calculations
+        self.m_layer_op = TransformerLayerOperator(model_config)
 
     def _compute_prefill_volume(self, event):
-        tasks = event.get_tasks() 
-        seq_len = 0
-        seq_len_2 = 0
-        for task in tasks.get():
-            seq_len += task.req.input_len + 1 # Prompt tokens
-            seq_len_2 += (task.req.input_len + 1) ** 2 # Prompt tokens
-
-        attn_flops = 4 * seq_len_2 * self.m_model_config.hidden_size + 2 * seq_len_2 # QKV + output
-        attn_mem = 4 * seq_len * self.m_model_config.hidden_size + 4 * seq_len_2
-
-        ffn_flops = 2 * seq_len * self.m_model_config.hidden_dim * self.m_model_config.ffn_dim  # 2 linear transforms
-        ffn_mem = 2 * seq_len * self.m_model_config.hidden_dim + 2 * seq_len_2
+        """
+        Compute FLOPs and memory access for prefill phase.
         
-        # Compute the total FLOPs and memory for the prefill
-        total_flops = attn_flops + ffn_flops
-        total_mem = attn_mem + ffn_mem
+        Prefill processes all input tokens at once for each task.
+        """
+        tasks = event.get_tasks()
+        total_flops = 0
+        total_mem = 0
+        
+        for task in tasks.get():
+            seq_len = task.req.input_len
+            # Compute per-layer FLOPs and memory
+            layer_flops = self.m_layer_op.compute_flops(batch_size=1, seq_len=seq_len, is_prefill=True)
+            layer_mem = self.m_layer_op.compute_memory(batch_size=1, seq_len=seq_len, is_prefill=True)
+            
+            # Aggregate over all layers
+            total_flops += layer_flops * self.m_model_config.num_layers
+            total_mem += layer_mem * self.m_model_config.num_layers
         
         return total_flops, total_mem
 
     def _compute_decode_volume(self, event):
-        tasks = event.get_tasks() 
-        seq_len = 0
-        seq_len_2 = 0
-        for task in tasks.get():
-            seq_len += task.req.input_len + task.decode_iters # Prompt tokens
-            seq_len_2 += (task.req.input_len + task.decode_iters) ** 2 # Prompt tokens
-
-        attn_flops = 4 * seq_len * self.m_model_config.hidden_size + 2 * seq_len # QKV + output
-        attn_mem = 4 * seq_len * self.m_model_config.hidden_size + 4 * seq_len
-
-        ffn_flops = 2 * seq_len * self.m_model_config.hidden_dim * self.m_model_config.ffn_dim  # 2 linear transforms
-        ffn_mem = 2 * seq_len * self.m_model_config.hidden_dim + 2 * seq_len
+        """
+        Compute FLOPs and memory access for decode phase.
         
-        # Compute the total FLOPs and memory for the prefill
-        total_flops = attn_flops + ffn_flops
-        total_mem = attn_mem + ffn_mem
+        Decode generates one token per task in the batch.
+        Each task attends to all previously cached tokens.
+        """
+        tasks = event.get_tasks()
+        total_flops = 0
+        total_mem = 0
+        
+        for task in tasks.get():
+            # Current sequence length (for attention over KV cache)
+            # decode_iters starts at 0, so current position is input_len + decode_iters
+            kv_cache_len = task.req.input_len + task.decode_iters
+            
+            # Compute per-layer FLOPs and memory for decoding 1 token
+            # The seq_len parameter represents KV cache length for attention
+            layer_flops = self.m_layer_op.compute_flops(batch_size=1, seq_len=kv_cache_len, is_prefill=False)
+            layer_mem = self.m_layer_op.compute_memory(batch_size=1, seq_len=kv_cache_len, is_prefill=False)
+            
+            # Aggregate over all layers
+            total_flops += layer_flops * self.m_model_config.num_layers
+            total_mem += layer_mem * self.m_model_config.num_layers
         
         return total_flops, total_mem
 
@@ -89,7 +105,8 @@ class ModelPerfSimulator(PerfSimulator):
     '''
     def time(self, event):
         '''
-        The main idea is to calculate the maximun time of computation and memory access
+        The main idea is to calculate the maximum time of computation and memory access.
+        Time is bounded by either compute (FLOPs) or memory bandwidth.
         '''
         compute_time = 0.0
         memory_time = 0.0
@@ -104,7 +121,13 @@ class ModelPerfSimulator(PerfSimulator):
         else:
             raise ValueError(f"Unsupported event type: {event}")
         
+        # Compute time (FLOPs / peak FLOPs)
+        # Use 60% efficiency factor for realistic performance
         compute_time = total_flops / (self.m_device_config.compute_flops * 0.6)
-        memory_time = total_mem / (self.m_device_config.memory_bandwidth * 0.8)
+        
+        # Memory time (bytes / bandwidth)
+        # Use 80% efficiency factor for memory bandwidth
+        memory_time = total_mem / (self.m_device_config.memory_bandwidth * 0.8 * 1e9)  # Convert GB/s to bytes/s
 
+        # Return the maximum (bottleneck)
         return max(compute_time, memory_time)
