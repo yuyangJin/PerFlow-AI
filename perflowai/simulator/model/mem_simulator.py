@@ -7,6 +7,7 @@
 
 from ...workflow import FlowNode
 from ...core import ModelConfig, EventType
+from ..oprt import TransformerLayerOperator
 
 
 '''
@@ -43,43 +44,58 @@ class MemSimulator(FlowNode):
 
 
 class ModelMemSimulator(MemSimulator):
+    """
+    Model-level memory simulator that computes KVCache size
+    using fine-grained operator-level calculations
+    """
     def __init__(self, model_config: ModelConfig):
         self.m_model_config = model_config
+        # Create a transformer layer operator for calculations
+        self.m_layer_op = TransformerLayerOperator(model_config)
 
 
     def kvcache(self, event):
-        seq_len = 0
+        """
+        Calculate KVCache size for an event.
+        
+        KVCache stores Key and Value tensors for all attention layers:
+        - For each layer: 2 (K, V) * num_heads * seq_len * head_dim
+        - Total: num_layers * per_layer_kvcache
+        
+        During prefill: We add KVCache for all input tokens
+        During decode: We add KVCache for new generated tokens and track total
+        """
+        total_kvcache_bytes = 0
+        
         if event.get_type() == EventType.PRF:
-            
+            # Prefill: Add KVCache for all input tokens
             tasks = event.get_tasks()
             
             for task in tasks.get():
-                seq_len += task.req.input_len + 1 # Prompt tokens 
+                # Each task processes input_len tokens
+                seq_len = task.req.input_len
+                # KVCache per layer for this task
+                per_layer_kvcache = self.m_layer_op.compute_kvcache(batch_size=1, seq_len=seq_len)
+                # Total for all layers
+                total_kvcache_bytes += per_layer_kvcache * self.m_model_config.num_layers
 
         elif event.get_type() == EventType.DCD:
-
-            # New adding element size
+            # Decode: Add KVCache for newly generated tokens
             tasks = event.get_tasks()
-            seq_len += tasks.get_num_task() # Each task only generate one token
-
-            # Elements should be removed after decode
+            
             for task in tasks.get():
-                if task.decode_iters == task.req.output_len - 1: # The task is finished, the KVCache of this task is no longer needed
-                    seq_len -= task.req.input_len + task.req.output_len
-
-
-        # Calculate element size per layer, Q, V
-        per_layer_elements = 2 * seq_len * self.m_model_config.num_heads * self.m_model_config.head_dim
-
-        # Calculate the total element size of the model
-        total_elements = per_layer_elements * self.m_model_config.num_layers
-        
-
-        # Calculate the total kvcache size 
-        total_bytes = total_elements * self.m_model_config.dtype_bytes
-
-        return total_bytes
-
+                # Each decode iteration generates 1 token
+                # Current sequence length includes input + previously decoded tokens
+                current_seq_len = task.req.input_len + task.decode_iters + 1  # +1 for current token
+                # KVCache per layer for this task (cumulative)
+                per_layer_kvcache = self.m_layer_op.compute_kvcache(batch_size=1, seq_len=current_seq_len)
+                # Total for all layers
+                total_kvcache_bytes += per_layer_kvcache * self.m_model_config.num_layers
+                
+                # If task is finished, we can mark it for cleanup (but not subtract here)
+                # The scheduler/memory manager should handle actual memory deallocation
+                
+        return total_kvcache_bytes
 
 
 # class PipeMemSiulator(MemSimulator):
