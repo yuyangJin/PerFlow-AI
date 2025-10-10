@@ -11,7 +11,8 @@ from ..workflow import FlowNode
 '''
 
 class MemoryFootprintVisualizer(FlowNode):
-    def __init__(self, mem_fp):
+    def __init__(self, mem_fp=None):
+        super().__init__()
         self.mem_fp = mem_fp
 
     def visualize(self, base = None, PRINT_DETAIL = False):
@@ -41,3 +42,17 @@ class MemoryFootprintVisualizer(FlowNode):
         if PRINT_DETAIL:
             print("base memory: ", base)
             print("peak memory: ", peak)
+
+    def run(self):
+        '''
+        Run the visualizer by calling visualize().
+        Gets memory footprint data from inputs if not provided in constructor.
+        '''
+        # Get mem_fp from inputs if not already set
+        if self.mem_fp is None and self.m_inputs.size() > 0:
+            input_data = list(self.m_inputs.get_data())
+            if input_data:
+                self.mem_fp = input_data[0]
+        
+        if self.mem_fp is not None:
+            self.visualize()

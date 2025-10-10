@@ -14,7 +14,21 @@ A graph Merger
 '''
 class Merge(FlowNode):
     def __init__(self):
-        pass
+        super().__init__()
+    
+    def run(self):
+        '''
+        Run the merge operation.
+        '''
+        # Merge needs input data to process
+        if self.m_inputs.size() == 0:
+            return None
+        # Get inputs as the graphs to merge
+        inputs = list(self.m_inputs.get_data())
+        result = self.merge(inputs[0] if len(inputs) > 0 else [], inputs[1] if len(inputs) > 1 else [])
+        if result is not None:
+            self.m_outputs.add_data(result)
+        return result
     
     def merge_pp(self, graph_list, edge_list):
         '''

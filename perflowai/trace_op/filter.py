@@ -14,7 +14,21 @@ A graph Filter
 '''
 class Filter(FlowNode):
     def __init__(self):
-        pass
+        super().__init__()
+    
+    def run(self):
+        '''
+        Run the filter operation.
+        '''
+        # Filter needs input data to process
+        if self.m_inputs.size() == 0:
+            return None
+        # Get the first input as the graph to filter
+        inputs = list(self.m_inputs.get_data())
+        result = self.filter(inputs[0], inputs[1] if len(inputs) > 1 else [])
+        if result is not None:
+            self.m_outputs.add_data(result)
+        return result
     
     '''
         This function is used to filter out a subgraph from a given graph.

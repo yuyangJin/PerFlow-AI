@@ -19,6 +19,7 @@ class InferSimulator(Simulator):
     '''
 
     def __init__(self, graph, request):
+        super().__init__()
         self.m_graph = graph
         self.m_ndevs = graph.get_ndevs()
         self.m_request = request
@@ -508,7 +509,7 @@ class InferSimulator(Simulator):
             print('[Task Pool]:', self.m_task_pool.pool)
             print('ready_event_ids at the iter end:', ready_event_ids)
 
-        self.set_outputs([trace])
+        self.m_outputs.add_data(trace)
 
         return trace
 
