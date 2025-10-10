@@ -15,3 +15,8 @@ sdist/
 
 # mypy
 .mypy_cache/
+
+# Generated visualization files
+*.svg
+*.pdf
+!docs/*.pdf
