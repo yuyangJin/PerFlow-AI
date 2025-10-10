@@ -69,7 +69,7 @@ A pipeline simulator.
 '''
 class PPSimulator(Simulator):
     def __init__(self, pipetype, ppgraph):
-        super().__init__('PPSimulator', 0)
+        super().__init__()
         self.m_pipetype = pipetype
         self.m_graph = ppgraph
         self.m_nstages = ppgraph.get_nstages()
@@ -186,7 +186,8 @@ class PPSimulator(Simulator):
 
             ready_event_ids.remove(current_event_id)  
         
-        self.set_outputs([pptrace])
+        # Add trace to outputs
+        self.m_outputs.add_data(pptrace)
 
         return pptrace
 
@@ -225,8 +226,11 @@ class PPSimulator(Simulator):
     @method run
     Run the pipeline simulator.
     '''
-    def run(self, *args, **kwargs):
+    def run(self):
         '''
         Run the simulator by calling simulate().
         '''
-        return self.simulate(*args, **kwargs)
+        result = self.simulate()
+        if result is not None:
+            self.m_outputs.add_data(result)
+        return result

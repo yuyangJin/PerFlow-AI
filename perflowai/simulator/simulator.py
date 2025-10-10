@@ -9,8 +9,8 @@ from ..workflow import FlowNode
 A simulator.
 '''
 class Simulator(FlowNode):
-    def __init__(self, name='Simulator', id=0):
-        super().__init__(name, id, [], [])
+    def __init__(self):
+        super().__init__()
 
     def simulate(self):
         '''
@@ -41,8 +41,11 @@ class Simulator(FlowNode):
     @method run
     Run the simulator.
     '''
-    def run(self, *args, **kwargs):
+    def run(self):
         '''
         Run the simulator by calling simulate().
         '''
-        return self.simulate(*args, **kwargs)
+        result = self.simulate()
+        if result is not None:
+            self.m_outputs.add_data(result)
+        return result

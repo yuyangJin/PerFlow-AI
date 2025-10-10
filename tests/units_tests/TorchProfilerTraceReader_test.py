@@ -11,8 +11,8 @@ def test_TorchProfilerTraceReader():
     tp_reader = TorchProfilerTraceReader('./tests/example_trace/out-1024.json')
     tp_reader.read([EventType.FWD, EventType.BWD])
     output = tp_reader.get_outputs()
-    assert len(output) == 1
-    trace = output[0]
+    assert output.size() == 1
+    trace = list(output.get_data())[0]
     assert trace.get_ndevs() == 1024
     events = trace.get_events(0)
     print(len(events))

@@ -12,8 +12,8 @@ from typing import List
 A trace reader.
 '''
 class TraceReader(FlowNode):
-    def __init__(self, trace_reader_str, trace_path: str, id=0):
-        super().__init__(trace_reader_str, id, [], [])
+    def __init__(self, trace_path: str):
+        super().__init__()
         self.m_trace_path = trace_path
 
     def read(self, event_types: List[EventType]) -> Trace:
@@ -31,8 +31,11 @@ class TraceReader(FlowNode):
         '''
         pass
 
-    def run(self, *args, **kwargs):
+    def run(self):
         '''
         Run the trace reader by calling read().
         '''
-        return self.read(*args, **kwargs)
+        result = self.read([])
+        if result is not None:
+            self.m_outputs.add_data(result)
+        return result

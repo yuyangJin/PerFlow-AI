@@ -31,8 +31,8 @@ CENTER_TITLE_HEIGHT = SPAN_HEIGHT * 6
 A trace visualizer.
 '''
 class TraceVisualizer(FlowNode):
-    def __init__(self, trace, name='TraceVisualizer', id=0):
-        super().__init__(name, id, [], [])
+    def __init__(self, trace):
+        super().__init__()
         self.trace = trace
 
     def visualize(self, PRINT_DETAIL = False):
@@ -229,8 +229,8 @@ class TraceVisualizer(FlowNode):
         if PRINT_DETAIL:
             print("E2E time: ", last_time)
 
-    def run(self, *args, **kwargs):
+    def run(self):
         '''
         Run the visualizer by calling visualize().
         '''
-        self.visualize(*args, **kwargs)
+        self.visualize()
