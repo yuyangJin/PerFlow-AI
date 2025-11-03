@@ -36,6 +36,108 @@ from perflowai.core.event import Event, EventType
 from perflowai.reader import TorchProfilerTraceReader
 
 
+def _save_trace_to_json(trace, mst, output_path):
+    '''
+    Helper function to save trace after MST mapping to JSON file.
+    
+    Args:
+        trace: Trace object with events
+        mst: Model Structure Tree with mapped events
+        output_path: Path to save JSON file
+    '''
+    data = {
+        'metadata': {
+            'type': 'trace_after_mst_mapping',
+            'num_devices': trace.get_ndevs(),
+            'total_events': sum(len(trace.get_events(dev_id)) for dev_id in range(trace.get_ndevs()))
+        },
+        'mst_nodes': {},
+        'devices': {}
+    }
+    
+    # Save MST node information
+    for node_id, node in mst.nodes.items():
+        data['mst_nodes'][str(node_id)] = {
+            'name': node.name,
+            'type': node.node_type,
+            'parent_id': node.parent_id,
+            'call_stack': node.call_stack if node.call_stack else [],
+            'num_events': len(node.trace_events)
+        }
+    
+    # Save events per device with MST mapping
+    for dev_id in range(trace.get_ndevs()):
+        events_data = []
+        for event in trace.get_events(dev_id):
+            event_data = {
+                'id': event.get_id(),
+                'name': event.get_name(),
+                'type': event.get_type().name,
+                'timestamp': event.get_timestamp(),
+                'duration': event.get_duration()
+            }
+            
+            # Find which MST node this event is mapped to
+            for node_id, node in mst.nodes.items():
+                if event in node.trace_events:
+                    event_data['mst_node_id'] = node_id
+                    event_data['mst_node_name'] = node.name
+                    break
+            
+            events_data.append(event_data)
+        
+        data['devices'][str(dev_id)] = {
+            'num_events': len(events_data),
+            'events': events_data
+        }
+    
+    # Write to JSON file
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def _save_compressed_trace_to_json(compressed, stats, output_path):
+    '''
+    Helper function to save compressed trace to JSON file.
+    
+    Args:
+        compressed: Compressed trace data
+        stats: Compression statistics
+        output_path: Path to save JSON file
+    '''
+    data = {
+        'metadata': {
+            'type': 'compressed_trace',
+            'compression_strategy': compressed.get('strategy', 'unknown'),
+            'compression_stats': {
+                'original_size_bytes': stats['original_size'],
+                'compressed_size_bytes': stats['compressed_size'],
+                'compression_ratio': stats['compression_ratio'],
+                'space_savings_percent': stats['space_savings'] * 100
+            }
+        },
+        'compressed_data': {
+            'num_devices': compressed.get('ndevs', 0),
+            'devices': {}
+        }
+    }
+    
+    # Save compressed device data
+    for dev_id, dev_data in compressed.get('devices', {}).items():
+        data['compressed_data']['devices'][str(dev_id)] = {
+            'num_events': dev_data.get('num_events', 0),
+            'encoded_data_size_bytes': len(dev_data.get('encoded_data', [])),
+            'metadata': {
+                'prediction_model': dev_data.get('prediction_model', {}),
+                'encoding_info': 'LEB128 variable-length encoding with zigzag for signed integers'
+            }
+        }
+    
+    # Write to JSON file
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
 class TransformerBlock(nn.Module):
     '''Simple transformer block for demonstration'''
     def __init__(self, d_model=256, nhead=4, dim_feedforward=1024):
@@ -225,9 +327,15 @@ def step2_collect_trace_with_torchprofiler(model):
     return trace_path, trace_json
 
 
-def step3_map_trace_to_mst(mst, trace_path, trace_json):
+def step3_map_trace_to_mst(mst, trace_path, trace_json, save_mapped_trace=False):
     '''
     Step 3: Map TorchProfiler trace to MST nodes
+    
+    Args:
+        mst: Model Structure Tree
+        trace_path: Path to TorchProfiler trace
+        trace_json: Parsed TorchProfiler JSON
+        save_mapped_trace: If True, save trace after MST mapping to JSON file
     '''
     print("\n" + "="*70)
     print("STEP 3: Map TorchProfiler Trace to MST")
@@ -272,12 +380,24 @@ def step3_map_trace_to_mst(mst, trace_path, trace_json):
         if node.trace_events and node.node_type != 'root':
             print(f"   Node '{node.name}' ({node.node_type}): {len(node.trace_events)} events")
     
+    # Optionally save trace after MST mapping
+    if save_mapped_trace:
+        print("\n3.5 Saving trace after MST mapping...")
+        mapped_trace_path = '/tmp/padoc_e2e_trace_mapped.json'
+        _save_trace_to_json(trace, mst, mapped_trace_path)
+        print(f"   ✓ Mapped trace saved: {mapped_trace_path}")
+    
     return trace, mst
 
 
-def step4_compress_events_on_mst(trace, mst):
+def step4_compress_events_on_mst(trace, mst, save_compressed_trace=False):
     '''
     Step 4: Compress trace events on MST nodes
+    
+    Args:
+        trace: Trace object
+        mst: Model Structure Tree
+        save_compressed_trace: If True, save compressed trace to JSON file
     '''
     print("\n" + "="*70)
     print("STEP 4: Compress Trace Events")
@@ -320,6 +440,13 @@ def step4_compress_events_on_mst(trace, mst):
             print(f"   Event {idx}: ts={event.get_timestamp()}, dur={event.get_duration()}")
     
     print("   ✓ Random access successful")
+    
+    # Optionally save compressed trace
+    if save_compressed_trace:
+        print("\n4.6 Saving compressed trace...")
+        compressed_trace_path = '/tmp/padoc_e2e_trace_compressed.json'
+        _save_compressed_trace_to_json(compressed, stats, compressed_trace_path)
+        print(f"   ✓ Compressed trace saved: {compressed_trace_path}")
     
     return compressed
 
@@ -370,7 +497,14 @@ def step5_analyze_compressed_trace(compressed, trace):
 def main():
     '''
     Main function: Run complete end-to-end PADoC workflow
+    
+    Set save_debug_traces=True to save intermediate traces for debugging:
+    - Trace after MST mapping: /tmp/padoc_e2e_trace_mapped.json
+    - Compressed trace: /tmp/padoc_e2e_trace_compressed.json
     '''
+    # Optional: Enable saving intermediate traces for debugging
+    save_debug_traces = False  # Set to True to save debug traces
+    
     print("\n" + "="*70)
     print("PADoC End-to-End Example: Complete Workflow")
     print("="*70)
@@ -380,6 +514,9 @@ def main():
     print("3. Trace-to-MST mapping")
     print("4. Trace compression on MST")
     print("5. Performance analysis on compressed trace")
+    
+    if save_debug_traces:
+        print("\n[DEBUG MODE] Intermediate traces will be saved for debugging")
     
     # Create model
     print("\n" + "="*70)
@@ -395,11 +532,13 @@ def main():
     # Step 2: Collect trace with TorchProfiler
     trace_path, trace_json = step2_collect_trace_with_torchprofiler(traceable_model)
     
-    # Step 3: Map trace to MST
-    trace, mst = step3_map_trace_to_mst(mst, trace_path, trace_json)
+    # Step 3: Map trace to MST (with optional save)
+    trace, mst = step3_map_trace_to_mst(mst, trace_path, trace_json, 
+                                         save_mapped_trace=save_debug_traces)
     
-    # Step 4: Compress events on MST
-    compressed = step4_compress_events_on_mst(trace, mst)
+    # Step 4: Compress events on MST (with optional save)
+    compressed = step4_compress_events_on_mst(trace, mst, 
+                                               save_compressed_trace=save_debug_traces)
     
     # Step 5: Analyze compressed trace
     step5_analyze_compressed_trace(compressed, trace)
@@ -432,9 +571,15 @@ def main():
     print(f"• MST visualization: /tmp/padoc_e2e_mst.pdf")
     print(f"• TorchProfiler trace: /tmp/padoc_e2e_trace.json")
     
+    if save_debug_traces:
+        print(f"• Mapped trace (debug): /tmp/padoc_e2e_trace_mapped.json")
+        print(f"• Compressed trace (debug): /tmp/padoc_e2e_trace_compressed.json")
+    
     print("\n" + "="*70)
     print("✓ End-to-End Example Complete!")
     print("="*70)
+    print("\nTip: Set save_debug_traces=True in main() to save intermediate traces for debugging")
+
 
 
 if __name__ == '__main__':
