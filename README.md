@@ -9,6 +9,14 @@ AI system researchers can quickly **evaluate performance benifits** through simu
 
 We welcome AI system researchers to use it, and we welcome everyone to provide valuable suggestions for PerFlow-AI during the trial process!
 
+## Features
+
+- **Pipeline Parallel Simulators**: GPipe, PipeDream, Interleaved 1F1B, Zero Bubble schedules
+- **Memory Management**: Offloading and recomputation strategies
+- **Trace Analysis**: Read and analyze TorchProfiler traces
+- **Visualization**: Generate SVG visualizations of execution timelines
+- **PADoC**: Performance Analytics Directly on Compressed traces with lossless compression and direct analysis
+
 ## How to use PerFlow-AI
 
 ### 0. Installation
@@ -103,6 +111,38 @@ def Heterogeneous_ZBV_Simulate_Visualize():
 The output result is a `trace.svg`:
 
 ![img](./examples/heterogeneous_resource_pp/trace.png)
+
+### 3. PADoC: Performance Analytics Directly on Compressed Trace
+
+PADoC provides lossless trace compression with direct analysis capabilities:
+
+```python
+from perflowai.padoc import (
+    ModelStructureTree, TraceCompressor, TraceDecompressor,
+    BubbleAnalyzer, ImbalanceAnalyzer
+)
+
+# Build Model Structure Tree
+mst = ModelStructureTree()
+layer = mst.add_node('TransformerLayer', 'layer', parent_id=0)
+mst.visualize()
+
+# Compress trace
+compressor = TraceCompressor()
+compressed = compressor.compress_trace(trace, strategy='intra')
+stats = compressor.get_compression_stats(trace, compressed)
+print(f"Compression ratio: {stats['compression_ratio']:.2f}x")
+
+# Analyze directly on compressed format
+bubble_result = BubbleAnalyzer.analyze_compressed(compressed)
+print(f"Bubble ratio: {bubble_result['average_bubble_ratio']:.2%}")
+
+# Decompress when needed
+decompressor = TraceDecompressor()
+original_trace = decompressor.decompress_trace(compressed)
+```
+
+See `examples/padoc_demo.py` for a complete demonstration and `perflowai/padoc/README.md` for detailed documentation.
 
 ## Developers
 PerFlow-AI was created and developed by Yuyang Jin, Xirui Shui, Runxin Zhong, Mingshu Zhai, Kezhao Huang, Jiaao He, Zan Zong, and Jidong Zhai.

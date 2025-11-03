@@ -17,3 +17,13 @@ sdist/
 
 # mypy
 .mypy_cache/
+
+# Generated visualization files
+mst_*.pdf
+mst_*.png
+mst_*.svg
+mst_visualization_screenshot.png
+demo_*.pdf
+demo_*.png
+demo_*.svg
+padoc_torchfx_workflow.png
