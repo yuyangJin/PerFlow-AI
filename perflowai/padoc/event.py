@@ -9,6 +9,14 @@ class BaseEvent(ABC):
         pass
 
     @abstractmethod
+    def get_ts(self) -> float:
+        pass
+
+    @abstractmethod
+    def get_dur(self) -> float:
+        pass
+
+    @abstractmethod
     def is_merged(self) -> bool:
         pass
 
@@ -23,6 +31,12 @@ class Event(BaseEvent):
 
     def get_name(self) -> str:
         return self.raw.get("name", "unknown")
+    
+    def get_ts(self) -> float:
+        return self.raw.get("ts", 0.0)
+    
+    def get_dur(self) -> float:
+        return self.raw.get("dur", 0.0)
     
     def is_merged(self) -> bool:
         return False
