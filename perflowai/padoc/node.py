@@ -46,7 +46,7 @@ class Node(BaseNode):
         pass
 
 class MergeNode(BaseNode):
-    def __init__(self, nodes: List[Union["Node", "MergeNode"]]):
+    def __init__(self, nodes: List[Union[Node, MergeNode]]):
         # TODO: 这里默认nodes都是Node类型，可能需要考虑支持混合类型
         # TODO: 这里其实还需要维护一个全部唯一标识符之类的，可以使用BaseNode的_global_id，但是并不是所有的Node需要维护，如果没有被Ref，就不需要id
         # TODO: 因为这里的merge有两种情况，一种是他们同为子节点，在同一个父节点下(init时)，另一种是他们是不同父节点下的子节点(merge_nodes时，会被Ref)，需要考虑两种情况的合并，需要区分这两种，不然树结构就损坏了
@@ -79,7 +79,7 @@ class MergeNode(BaseNode):
             merged_child_node = MergeNode(child_nodes_to_merge)
             self.children.append(merged_child_node)
 
-    def merge_nodes(self, nodes: List[Union["Node", "MergeNode"]]):
+    def merge_nodes(self, nodes: List[Union[Node, MergeNode]]):
         # TODO: 这里默认nodes都是Node类型，可能需要考虑支持混合类型
         logger.debug("MergeNode merge_nodes: Merging %d nodes", len(nodes))
         event_count = len(self.events)
