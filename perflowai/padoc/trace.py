@@ -16,7 +16,7 @@ class BaseTrace:
     def write_json_file(self, path: str):
         pass
 
-class Trace:
+class Trace(BaseTrace):
     def __init__(self, events: Optional[List[Dict[str, Any]]] = None):
         self.root: BaseNode = Node([Event(e) for e in events]) if events else Node()
         # TODO: 增加metadata，比如deviceinfo等
@@ -33,7 +33,7 @@ class Trace:
             json.dump({"traceEvents": [e.to_dict() for e in self.root.events]}, f, indent=2)
 
 
-class CompressedTrace(Trace):
+class CompressedTrace(BaseTrace):
     def __init__(self, root: BaseNode):
         self.root: BaseNode = root
 
