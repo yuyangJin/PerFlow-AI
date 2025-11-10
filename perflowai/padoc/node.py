@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .event import Event, MergeEvent
+from .event import BaseEvent, Event, MergeEvent
 from .utils import logger
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union
@@ -9,6 +9,26 @@ class BaseNode(ABC):
     _global_id = 0
 
     def __init__(self):
+        pass
+
+    @abstractmethod
+    def get_events(self) -> List[BaseEvent]:
+        pass
+
+    @abstractmethod
+    def add_events(self, events: List[BaseEvent]):
+        pass
+
+    @abstractmethod
+    def get_children(self) -> List[BaseNode]:
+        pass
+
+    @abstractmethod
+    def set_children(self, children: List[BaseNode]):
+        pass
+
+    @abstractmethod
+    def add_child(self, child: BaseNode):
         pass
 
     @abstractmethod
@@ -27,11 +47,20 @@ class Node(BaseNode):
         self.events: List[Event] = events or []
         self.children: List[BaseNode] = []
 
+    def get_events(self) -> List[BaseEvent]:
+        return self.events
+
+    def add_events(self, events: List[BaseEvent]):
+        self.events.extend(events)
+
+    def get_children(self) -> List[BaseNode]:
+        return self.children
+
+    def set_children(self, children: List[BaseNode]):
+        self.children = children
+
     def add_child(self, child: BaseNode):
         self.children.append(child)
-
-    def add_event(self, event: Event):
-        self.events.append(event)
 
     def to_dict(self) -> Dict:
         # TODO: type字段是不是必要的，可不可以省略
@@ -97,6 +126,24 @@ class MergeNode(BaseNode):
         for i in range(child_count):
             child_nodes_to_merge = [n.children[i] for n in nodes]
             self.children[i].merge_nodes(child_nodes_to_merge)
+
+    def get_events(self) -> List[BaseEvent]:
+        return self.events
+
+    def add_events(self, events: List[BaseEvent]):
+        # TODO: 这里需要做一些限制，比如不能直接添加到MergeNode，只能通过merge_nodes
+        pass
+
+    def get_children(self) -> List[BaseNode]:
+        return self.children
+
+    def set_children(self, children: List[BaseNode]):
+        # TODO: 这里需要做一些限制，比如不能直接设置到MergeNode，只能通过merge_nodes
+        pass
+
+    def add_child(self, child: BaseNode):
+        # TODO: 这里需要做一些限制，比如不能直接添加到MergeNode，只能通过merge_nodes
+        pass
 
     def to_dict(self) -> Dict:
         # TODO: type字段是不是必要的，可不可以省略
