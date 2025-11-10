@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from .event import Event, MergeEvent
+from .node import BaseNode, Node, MergeNode, RefNode
+from .trace import BaseTrace, Trace, CompressedTrace
+from .compressor import Compressor, TemplateCompressor
+from .utils import logger
+
+__all__ = [
+    "Event",
+    "MergeEvent",
+
+    "BaseNode",
+    "Node",
+    "MergeNode",
+    "RefNode",
+
+    "BaseTrace",
+    "Trace",
+    "CompressedTrace",
+
+    "Compressor",
+    "TemplateCompressor",
+]
+
+
+__version__ = "0.1.0"
+
+logger.info("padoc package initialized (v%s)", __version__)
