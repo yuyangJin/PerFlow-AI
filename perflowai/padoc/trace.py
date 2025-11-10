@@ -2,10 +2,39 @@ from __future__ import annotations
 import json
 from .event import Event
 from .node import BaseNode, Node
+from .utils import logger
 from typing import Any, Dict, List, Optional
 from abc import ABC, abstractmethod
 
 class BaseTrace:
+
+    @abstractmethod
+    def get_metadata(self) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def get_ranks(self) -> List[int]:
+        pass
+
+    @abstractmethod
+    def get_pids(self, rank: int) -> List[int]:
+        pass
+
+    @abstractmethod
+    def get_tids(self, rank: int, pid: int) -> List[int]:
+        pass
+
+    @abstractmethod
+    def get_node(self, rank: int, pid: int, tid: int) -> Optional[BaseNode]:
+        pass
+
+    @abstractmethod
+    def set_node(self, rank: int, pid: int, tid: int, node: BaseNode):
+        pass
+
+    @abstractmethod
+    def iter_nodes(self, rank: Optional[int] = None):
+        pass
     
     @classmethod
     @abstractmethod
@@ -33,6 +62,31 @@ class Trace(BaseTrace):
         metadata: Dict[str, Any] = {k: v for k, v in data.items() if k != "traceEvents"}
         return cls(events, metadata)
     
+    def get_metadata(self) -> Dict[str, Any]:
+        return self.metadata
+
+    def get_ranks(self) -> List[int]:
+        return list(self.ranks.keys())
+
+    def get_pids(self, rank: int) -> List[int]:
+        return list(self.ranks.get(rank, {}).keys())
+
+    def get_tids(self, rank: int, pid: int) -> List[int]:
+        return list(self.ranks.get(rank, {}).get(pid, {}).keys())
+
+    def get_node(self, rank: int, pid: int, tid: int) -> Optional[Node]:
+        return self.ranks.get(rank, {}).get(pid, {}).get(tid)
+
+    def set_node(self, rank: int, pid: int, tid: int, node: Node):
+        self.ranks.setdefault(rank, {}).setdefault(pid, {})[tid] = node
+
+    def iter_nodes(self, rank: Optional[int] = None):
+        rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+        for r, processes in rank_items:
+            for pid, tids in processes.items():
+                for tid, node in tids.items():
+                    yield r, pid, tid, node
+    
     def add_events(self, events: List[Dict[str, Any]], rank: int = 0):
         if not events:
             return
@@ -49,8 +103,7 @@ class Trace(BaseTrace):
             pid_layer = rank_layer.setdefault(pid, {})
             node = pid_layer.setdefault(tid, Node())
 
-            event_obj = Event(e)
-            node.add_event(event_obj)
+            node.add_events([Event(e)])
 
     def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
         out = {}
@@ -97,8 +150,8 @@ class CompressedTrace(BaseTrace):
     @classmethod
     def from_json(cls, path: str) -> CompressedTrace:
         # TODO:
-        pass
+        logger.error("CompressedTrace.write_json_file is not implemented yet.")
 
     def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
         # TODO:
-        pass
+        logger.error("CompressedTrace.write_json_file is not implemented yet.")
