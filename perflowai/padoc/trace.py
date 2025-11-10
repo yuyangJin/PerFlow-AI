@@ -13,35 +13,92 @@ class BaseTrace:
         pass
 
     @abstractmethod
-    def write_json_file(self, path: str):
+    def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
         pass
 
 class Trace(BaseTrace):
-    def __init__(self, events: Optional[List[Dict[str, Any]]] = None):
-        self.root: BaseNode = Node([Event(e) for e in events]) if events else Node()
-        # TODO: 增加metadata，比如deviceinfo等
+    def __init__(self, events: Optional[List[Dict[str, Any]]] = None, metadata: Optional[Dict[str, Any]] = None):
+        # rank -> pid -> tid -> node
+        self.ranks: Dict[int, Dict[int, Dict[int, Node]]] = {}
+        self.metadata: Dict[str, Any] = metadata if metadata else {}
+
+        if events:
+            self.add_events(events)
 
     @classmethod
     def from_json(cls, path: str) -> Trace:
         with open(path, 'r') as f:
             data: Dict[str, Any] = json.load(f)
         events: List[Dict[str, Any]] = data.get("traceEvents", [])
-        return cls(events)
+        metadata: Dict[str, Any] = {k: v for k, v in data.items() if k != "traceEvents"}
+        return cls(events, metadata)
+    
+    def add_events(self, events: List[Dict[str, Any]], rank: int = 0):
+        if not events:
+            return
 
-    def write_json_file(self, path: str):
-        with open(path, 'w') as f:
-            json.dump({"traceEvents": [e.to_dict() for e in self.root.events]}, f, indent=2)
+        if rank not in self.ranks:
+            self.ranks[rank] = {}
+
+        for e in events:
+            pid = e.pop("pid", 0)
+            tid = e.pop("tid", 0)
+            e.pop("rank", None)
+
+            rank_layer = self.ranks.setdefault(rank, {})
+            pid_layer = rank_layer.setdefault(pid, {})
+            node = pid_layer.setdefault(tid, Node())
+
+            event_obj = Event(e)
+            node.add_event(event_obj)
+
+    def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
+        out = {}
+
+        if origin:
+            trace_events = []
+
+            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+
+            for r, processes in rank_items:
+                for pid, tids in processes.items():
+                    for tid, node in tids.items():
+                        for e in node.events:
+                            event_dict = e.to_dict().copy()
+                            event_dict["pid"] = pid
+                            event_dict["tid"] = tid
+                            trace_events.append(event_dict)
+
+            out = {"traceEvents": trace_events}
+            out.update(self.metadata)
+
+        else:
+            out["metadata"] = self.metadata
+            out["ranks"] = {}
+
+            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+            for r, processes in rank_items:
+                out["ranks"][r] = {}
+                for pid, tids in processes.items():
+                    out["ranks"][r][pid] = {}
+                    for tid, node in tids.items():
+                        out["ranks"][r][pid][tid] = node.to_dict()
+
+        with open(path, "w") as f:
+            json.dump(out, f, indent=2)
 
 
 class CompressedTrace(BaseTrace):
-    def __init__(self, root: BaseNode):
-        self.root: BaseNode = root
+    def __init__(self, ranks: Dict[int, Dict[int, Dict[int, BaseNode]]], metadata: Dict[str, Any] = None):
+        # rank -> pid -> tid -> node
+        self.ranks: Dict[int, Dict[int, Dict[int, BaseNode]]] = ranks
+        self.metadata: Dict[str, Any] = metadata if metadata else {}
 
     @classmethod
     def from_json(cls, path: str) -> CompressedTrace:
         # TODO:
         pass
 
-    def write_json_file(self, path):
-        with open(path, 'w') as f:
-            json.dump(self.root.to_dict(), f, indent=2)
+    def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
+        # TODO:
+        pass
