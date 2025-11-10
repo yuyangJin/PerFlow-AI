@@ -150,7 +150,7 @@ class CompressedTrace(BaseTrace):
     @classmethod
     def from_json(cls, path: str) -> CompressedTrace:
         # TODO:
-        logger.error("CompressedTrace.write_json_file is not implemented yet.")
+        logger.error("CompressedTrace.from_json is not implemented yet.")
 
     def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
         # TODO:
