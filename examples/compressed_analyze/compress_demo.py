@@ -1,4 +1,4 @@
-from perflowai.padoc import Trace, Compressor, TemplateCompressor
+from perflowai.padoc import Trace, Compressor, TemplateCompressor, CompressedTrace
 import argparse
 
 def compress_demo(input_file: str, origin_file: str,output_file: str):
@@ -6,6 +6,11 @@ def compress_demo(input_file: str, origin_file: str,output_file: str):
     # write original trace to file
     trace.write_json_file(origin_file)
     # TODO: compress trace and write to file
+    compressor = TemplateCompressor()
+    compressed_trace = compressor.intra_compress(trace)
+    compressed_trace.write_json_file(output_file)
+    # test read compressed trace
+    compressed_trace = CompressedTrace.from_json(output_file)
 
 
 def main():
