@@ -2,6 +2,7 @@ from __future__ import annotations
 from .utils import logger
 from typing import List, Dict, Any
 from abc import ABC, abstractmethod
+import re
 
 class BaseEvent(ABC):
     @abstractmethod
@@ -21,12 +22,16 @@ class BaseEvent(ABC):
         pass
 
     @abstractmethod
-    def to_dict(self):
+    def is_same_event(self, other: BaseEvent) -> bool:
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
         pass
 
 
 class Event(BaseEvent):
-    def __init__(self, raw: Dict[str, Any]):
+    def __init__(self, raw: Dict[str, Any] = {}):
         self.raw: Dict[str, Any] = raw
 
     def get_name(self) -> str:
@@ -40,24 +45,37 @@ class Event(BaseEvent):
     
     def is_merged(self) -> bool:
         return False
+    
+    def is_same_event(self, other: BaseEvent) -> bool:
+        if not isinstance(other, BaseEvent):
+            return False
 
-    def to_dict(self):
+        ignore_keys = {"ts", "dur", "id", "args"}
+
+        for key, val in self.raw.items():
+            if key in ignore_keys or key == "name":
+                continue
+
+            other_val = other.raw.get(key, None)
+            if val != other_val:
+                return False
+
+        name1 = re.sub(r"\d+", "", self.get_name())
+        name2 = re.sub(r"\d+", "", other.get_name())
+        return name1 == name2
+
+    def to_dict(self) -> Dict[str, Any]:
         return self.raw
 
 
 class MergeEvent(Event):
-    def __init__(self, events: List[BaseEvent], merge_keys: List[str] = ["ts", "dur", "id", "args"]):
-        # TODO: 这里默认输入的events都是Event，但可能还需要考虑是否需要支持MergeEvent
-        assert len(events) > 1, "MergeEvent requires at least two event."
+    def __init__(self, events: List[BaseEvent] = [], merge_keys: List[str] = ["ts", "dur", "id", "args"]):
         self.merge_keys = merge_keys
 
-        base = events[0].raw.copy()
-        # TODO: 检查这些event是否可以合并，如果有问题，使用logger警告
-        for key in merge_keys:
-            base[key] = [e.raw.get(key) for e in events]
+        self.raw = {}
 
-        # TODO: 可以自动识别哪些字段是连续型的（如ts、duration），后续动态生成 merge_keys，并使用logger信息
-        self.raw = base
+        if events:
+            self.add_events(events)
 
     def is_merged(self) -> bool:
         return True
@@ -65,8 +83,14 @@ class MergeEvent(Event):
     def add_events(self, events: List[BaseEvent]):
         # TODO: 这里默认输入的events都是Event，但可能还需要考虑是否需要支持MergeEvent
         # TODO: 检查这些event是否可以合并，如果有问题，使用logger警告
-        for key in self.merge_keys:
-            self.raw[key].extend([e.raw.get(key) for e in events])
+        assert len(events) > 0, "events should not be empty"
 
-    def to_dict(self):
+        if not self.raw:
+            self.raw = events[0].to_dict().copy()
+
+
+        for key in self.merge_keys:
+            self.raw[key] = [e.to_dict().get(key) for e in events]
+
+    def to_dict(self) -> Dict[str, Any]:
         return self.raw

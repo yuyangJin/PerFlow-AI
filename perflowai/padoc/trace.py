@@ -1,10 +1,11 @@
 from __future__ import annotations
 import json
 from .event import Event
-from .node import BaseNode, Node
+from .node import BaseNode, Node, TemplateNode
 from .utils import logger
 from typing import Any, Dict, List, Optional
 from abc import ABC, abstractmethod
+import msgpack
 
 class BaseTrace:
 
@@ -137,12 +138,15 @@ class Trace(BaseTrace):
                     for tid, node in tids.items():
                         out["ranks"][r][pid][tid] = node.to_dict()
 
-        with open(path, "w") as f:
-            json.dump(out, f, indent=2)
+        with open(path, "wb") as f:
+            msgpack.dump(out, f)
 
 
 class CompressedTrace(BaseTrace):
-    def __init__(self, ranks: Dict[int, Dict[int, Dict[int, BaseNode]]], metadata: Dict[str, Any] = None):
+    def __init__(self, templates: Dict[int, TemplateNode], ranks: Dict[int, Dict[int, Dict[int, BaseNode]]], metadata: Dict[str, Any] = None):
+
+        self.templates: Dict[int, TemplateNode] = templates
+
         # rank -> pid -> tid -> node
         self.ranks: Dict[int, Dict[int, Dict[int, BaseNode]]] = ranks
         self.metadata: Dict[str, Any] = metadata if metadata else {}
@@ -154,4 +158,26 @@ class CompressedTrace(BaseTrace):
 
     def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
         # TODO:
-        logger.error("CompressedTrace.write_json_file is not implemented yet.")
+        out = {}
+
+        if origin:
+            raise NotImplementedError("CompressedTrace.write_json_file is not implemented yet.")
+
+        else:
+            out["metadata"] = self.metadata
+            out["templates"] = {}
+            out["ranks"] = {}
+
+            for id, template in self.templates.items():
+                out["templates"][id] = template.to_dict()
+
+            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+            for r, processes in rank_items:
+                out["ranks"][r] = {}
+                for pid, tids in processes.items():
+                    out["ranks"][r][pid] = {}
+                    for tid, node in tids.items():
+                        out["ranks"][r][pid][tid] = node.to_dict()
+
+        with open(path, "wb") as f:
+            msgpack.dump(out, f)

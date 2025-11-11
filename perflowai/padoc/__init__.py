@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .event import Event, MergeEvent
-from .node import BaseNode, Node, MergeNode, RefNode
+from .node import BaseNode, Node, TemplateNode, RefNode
 from .trace import BaseTrace, Trace, CompressedTrace
 from .compressor import Compressor, TemplateCompressor
 from .utils import logger
@@ -12,7 +12,7 @@ __all__ = [
 
     "BaseNode",
     "Node",
-    "MergeNode",
+    "TemplateNode",
     "RefNode",
 
     "BaseTrace",
