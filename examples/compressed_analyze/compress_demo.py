@@ -54,7 +54,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", default="tests/example_trace/out-1024.json", type=str, help="input trace file path")
+    parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json", type=str, help="input trace file path")
     parser.add_argument("--origin_file", default="origin.bin", type=str, help="path to write original trace file")
     parser.add_argument("--output_file", default="compressed.bin", type=str, help="output compressed trace file path")
     args = parser.parse_args()
