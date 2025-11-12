@@ -17,3 +17,6 @@ sdist/
 
 # mypy
 .mypy_cache/
+
+# bin
+*.bin
