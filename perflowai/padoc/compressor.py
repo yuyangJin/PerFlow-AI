@@ -34,45 +34,13 @@ class TemplateCompressor(Compressor):
         # rank -> pid -> tid -> node
         compressed_ranks: Dict[int, Dict[int, Dict[int, BaseNode]]] = {}
         
-        # TODO: compress when building call tree
-        # 1. build call tree
-        # 1.1 get each pid and tid node
-        # 1.2 build call tree for each pid and tid node
         for r, pid, tid, node in trace.iter_nodes(rank):
 
             compressed_ranks.setdefault(r, {}).setdefault(pid, {})
 
-            root = self.build_call_tree(node)
+            root = self._build_call_tree(node)
             root = self._find_template_node(root)
             compressed_ranks[r][pid][tid] = root
-
-            # groups, unused = self.group_same_children(root)
-            # for i, group in enumerate(groups):
-            #     name = group[0].get_events()[0].get_name()
-            #     safe_name = name.split("/")[-1].split(":")[0]
-            #     import re
-            #     safe_name = re.sub(r"[^0-9a-zA-Z_-]", "_", safe_name)
-            #     file_path = f"{safe_name}_group_{i}.json"
-            #     import json
-            #     with open(file=file_path, mode="w") as f:
-            #         json.dump(group[0].to_dict(), f, indent=2)
-            #     logger.info(f"compressing {len(group)} nodes, name: {group[0].get_events()[0].get_name()}")
-
-            # for i, n in enumerate(unused):
-            #     logger.info(f"keeping {n.get_events()[0].get_name()}")
-            #     name = n.get_events()[0].get_name()
-            #     safe_name = name.split("/")[-1].split(":")[0]
-            #     import re
-            #     safe_name = re.sub(r"[^0-9a-zA-Z_-]", "_", safe_name)
-            #     file_path = f"{safe_name}_unused_{i}.json"
-            #     import json
-            #     with open(file=file_path, mode="w") as f:
-            #         json.dump(n.to_dict(), f, indent=2)
-
-        # TODO:
-        # 2. compress call tree
-        # 2.1 combine nodes if there are multiple same nodes
-        # 2.2 find template nodes and compress them
 
         logger.info(f"compressed {len(compressed_ranks)} ranks")
         logger.info(f"compressed {len(self.templates)} templates")
@@ -84,7 +52,7 @@ class TemplateCompressor(Compressor):
         # TODO
         pass
 
-    def build_call_tree(self, node: Node) -> Node:
+    def _build_call_tree(self, node: Node) -> Node:
         events = sorted(node.events, key=lambda e: e.get_ts())
         
         roots: List[Node] = []
@@ -119,7 +87,7 @@ class TemplateCompressor(Compressor):
 
         return root
     
-    def group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
+    def _group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
         children = node.get_children()
         n = len(children)
         used = [False] * n
@@ -155,19 +123,17 @@ class TemplateCompressor(Compressor):
         return None
     
     def _find_template_node(self, node: Node) -> Node:
+        # there is no ref node
         
-        if isinstance(node, TemplateNode):
-            logger.error(f"node is already a template node: {node.get_events()[0].get_name()}")
-            raise ValueError("node is already a template node")
-        
-        tem = self._find_node_in_templates(node)
-        if tem is not None:
-            index = tem.get_node_count()
-            tem.add_nodes([node])
+        if not hasattr(node, "id"): # only root template node has id
+            tem = self._find_node_in_templates(node)
+            if tem is not None:
+                index = tem.get_node_count()
+                tem.add_nodes([node])
 
-            return RefNode(tem, index)
+                return RefNode(tem, index)
         
-        groups, unused = self.group_same_children(node)
+        groups, _ = self._group_same_children(node)
         node_to_ref_node: Dict[Node, RefNode] = {}
         for group in groups:
             tem = self._find_node_in_templates(group[0])
@@ -179,12 +145,15 @@ class TemplateCompressor(Compressor):
                     index += 1
             else:
                 tem = TemplateNode(group)
+                tem.id = self.next_template_id
                 self.templates[self.next_template_id] = tem
                 self.next_template_id += 1
                 index = 0
                 for n in group:
                     node_to_ref_node[n] = RefNode(tem, index)
                     index += 1
+
+                self._find_template_node(tem)
 
         new_children = []
         for child in node.get_children():
@@ -196,6 +165,10 @@ class TemplateCompressor(Compressor):
         node.children = new_children
 
         return node
+    
+    def _compress_templates(self):
+        # TODO:
+        pass
         
 
     def _flatten_tree(self, node: Node):

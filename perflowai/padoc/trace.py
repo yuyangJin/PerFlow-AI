@@ -6,6 +6,7 @@ from .utils import logger
 from typing import Any, Dict, List, Optional
 from abc import ABC, abstractmethod
 import msgpack
+import os
 
 class BaseTrace:
 
@@ -138,8 +139,14 @@ class Trace(BaseTrace):
                     for tid, node in tids.items():
                         out["ranks"][r][pid][tid] = node.to_dict()
 
-        with open(path, "wb") as f:
-            msgpack.dump(out, f)
+        ext = os.path.splitext(path)[1].lower()
+
+        if ext == ".json":
+            with open(path, "w") as f:
+                json.dump(out, f)
+        else:
+            with open(path, "wb") as f:
+                msgpack.dump(out, f)
 
 
 class CompressedTrace(BaseTrace):
@@ -179,5 +186,11 @@ class CompressedTrace(BaseTrace):
                     for tid, node in tids.items():
                         out["ranks"][r][pid][tid] = node.to_dict()
 
-        with open(path, "wb") as f:
-            msgpack.dump(out, f)
+        ext = os.path.splitext(path)[1].lower()
+
+        if ext == ".json":
+            with open(path, "w") as f:
+                json.dump(out, f)
+        else:
+            with open(path, "wb") as f:
+                msgpack.dump(out, f)

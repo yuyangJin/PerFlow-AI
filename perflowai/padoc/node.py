@@ -86,9 +86,7 @@ class Node(BaseNode):
 
 
     def to_dict(self) -> Dict:
-        # TODO: type字段是不是必要的，可不可以省略
         return {
-            "type": "Node",
             "events": [e.to_dict() for e in self.events],
             "children": [c.to_dict() for c in self.children]
         }
@@ -99,18 +97,9 @@ class Node(BaseNode):
 
 class TemplateNode(BaseNode):
     def __init__(self, nodes: List[Union[Node, TemplateNode]]):
-        # TODO: 这里默认nodes都是Node类型，可能需要考虑支持混合类型
-        # TODO: 这里其实还需要维护一个全部唯一标识符之类的，可以使用BaseNode的_global_id，但是并不是所有的Node需要维护，如果没有被Ref，就不需要id
-        self.events : List[MergeEvent] = [MergeEvent()] * len(nodes[0].events)
-        self.children : List[BaseNode] = []
+        self.events : List[MergeEvent] = []
+        self.children : List[TemplateNode] = []
         self.node_count = len(nodes)
-
-        assert len(nodes) > 1, "TemplateNode requires at least two nodes."
-        if len(nodes) < 2:
-            logger.warning("TemplateNode __init__: Only one node provided. Please provide at least two nodes to merge.")
-            self.events = nodes[0].events
-            self.children = nodes[0].children
-            return
         
         logger.debug("TemplateNode __init__: Merging %d nodes", len(nodes))
         event_count = len(nodes[0].events)
@@ -132,8 +121,8 @@ class TemplateNode(BaseNode):
             self.children.append(merged_child_node)
 
     def add_nodes(self, nodes: List[Union[Node, TemplateNode]]):
-        # TODO: 这里默认nodes都是Node类型，可能需要考虑支持混合类型
-        logger.debug("TemplateNode merge_nodes: Merging %d nodes", len(nodes))
+        logger.debug(f"TemplateNode add_nodes: {[type(n) for n in nodes]}")
+        self.node_count += len(nodes)
         event_count = len(self.events)
         for n in nodes:
             assert len(n.events) == event_count, "All nodes must have the same number of events as original node to merge."
@@ -148,7 +137,7 @@ class TemplateNode(BaseNode):
 
         for i in range(child_count):
             child_nodes_to_merge = [n.children[i] for n in nodes]
-            self.children[i].merge_nodes(child_nodes_to_merge)
+            self.children[i].add_nodes(child_nodes_to_merge)
 
     def get_events(self) -> List[MergeEvent]:
         return self.events
@@ -192,9 +181,7 @@ class TemplateNode(BaseNode):
         return True
 
     def to_dict(self) -> Dict[str, Any]:
-        # TODO: type字段是不是必要的，可不可以省略
         return {
-            "type": "TemplateNode",
             "events": [e.to_dict() for e in self.events],
             "children": [c.to_dict() for c in self.children]
         }
@@ -229,11 +216,8 @@ class RefNode(BaseNode):
         pass
 
     def to_dict(self) -> Dict:
-        # TODO: type字段是不是必要的，可不可以省略
-        # TODO: 这里如何写入其实是一个问题，因为程序结构中存储的是引用，这里需要想一个办法以最低的存储开销维护这个ref关系
         return {
-            "type": "RefNode",
-            "ref_node_id": 0,
+            "ref_node_id": 0, # TODO: 这里需要一个ref_node_id
             "index": self.index
         }
     

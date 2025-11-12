@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .utils import logger
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
 
@@ -80,17 +80,69 @@ class MergeEvent(Event):
     def is_merged(self) -> bool:
         return True
     
-    def add_events(self, events: List[BaseEvent]):
-        # TODO: 这里默认输入的events都是Event，但可能还需要考虑是否需要支持MergeEvent
-        # TODO: 检查这些event是否可以合并，如果有问题，使用logger警告
-        assert len(events) > 0, "events should not be empty"
+    def _ensure_list(self, v) -> List[Any]:
+        if v is None:
+            return [None]
+        if isinstance(v, list):
+            return v
+        return [v]
+    
+    def _wrap_dict_leaves(self, d: Any) -> List[Any]:
+
+        if not isinstance(d, dict):
+            return self._ensure_list(d)
+        
+        out = {}
+        for k, v in d.items():
+            out[k] = self._wrap_dict_leaves(v)
+        return out
+
+    def _merge_values(self, acc, v):
+        if acc is None:
+            if isinstance(v, dict):
+                return {k: self._merge_values(None, val) for k, val in v.items()}
+            else:
+                return self._ensure_list(v)
+
+        if isinstance(acc, list):
+            if isinstance(v, list):
+                acc.extend(v)
+            else:
+                acc.append(v)
+            return acc
+
+        if isinstance(acc, dict):
+            if not isinstance(v, dict):
+                logger.error("MergeEvent: type mismatch (dict vs non-dict)")
+                return acc
+            all_keys = set(acc.keys()) | set(v.keys())
+            for k in all_keys:
+                acc[k] = self._merge_values(acc.get(k), v.get(k))
+            return acc
+
+        logger.error("MergeEvent: type mismatch (non-list/dict vs non-list/dict)")
+        assert False, "unreachable"
+    
+    def _add_event(self, event: Union[Event, MergeEvent]):
+        e_dict = event.to_dict()
 
         if not self.raw:
-            self.raw = events[0].to_dict().copy()
+            self.raw = e_dict.copy()
+            for key in self.merge_keys:
+                val = self.raw.get(key, None)
+                self.raw[key] = self._wrap_dict_leaves(val)
 
-
+            return
+        
         for key in self.merge_keys:
-            self.raw[key] = [e.to_dict().get(key) for e in events]
+            old_val = self.raw.get(key, None)
+            new_val = e_dict.get(key, None)
+            self.raw[key] = self._merge_values(old_val, new_val)
+
+    
+    def add_events(self, events: List[Union[Event, MergeEvent]]):
+        for event in events:
+            self._add_event(event)
 
     def to_dict(self) -> Dict[str, Any]:
         return self.raw
