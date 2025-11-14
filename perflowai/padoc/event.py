@@ -29,6 +29,11 @@ class BaseEvent(ABC):
     def to_dict(self) -> Dict[str, Any]:
         pass
 
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> BaseEvent:
+        pass
+
 
 class Event(BaseEvent):
     def __init__(self, raw: Dict[str, Any] = {}):
@@ -88,6 +93,10 @@ class Event(BaseEvent):
 
     def to_dict(self) -> Dict[str, Any]:
         return self.raw
+    
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> Event:
+        return cls(raw)
 
 
 class MergeEvent(Event):
@@ -96,15 +105,11 @@ class MergeEvent(Event):
 
         self.raw = {}
 
-        self.name_pattern = None
-
         if events:
             self.add_events(events)
 
     def get_name(self) -> str:
-        if not self.name_pattern:
-            return "unknown"
-        return self.name_pattern
+        return self.raw.get("name_pattern", "unknown")
 
     def is_merged(self) -> bool:
         return True
@@ -127,14 +132,16 @@ class MergeEvent(Event):
                 return value
 
         content = {}
+        name_pattern = ""
         for k, v in self.raw.items():
-            if k in self.merge_keys:
+            if k == "name_pattern":
+                name_pattern = v
+            elif k in self.merge_keys:
                 content[k] = _extract_indexed(v)
             else:
                 content[k] = v
 
-        # logger.info(f"name_pattern: {self.name_pattern}, content: {content}")
-        content["name"] = self._format_name(self.name_pattern, content.get("name", []))
+        content["name"] = self._format_name(name_pattern, content.get("name", []))
 
         return Event(content)
     
@@ -205,24 +212,18 @@ class MergeEvent(Event):
     def _add_event(self, event: Union[Event, MergeEvent]):
         e_dict = event.to_dict().copy()
         is_mergeevent = isinstance(event, MergeEvent)
+        pattern = ""
 
         if not is_mergeevent:
             name = e_dict.get("name", None)
             assert name is not None, "name should not be None"
             pattern, nums = self._parse_name(name)
             e_dict["name"] = nums
-            if self.name_pattern is None:
-                self.name_pattern = pattern
-                if pattern is None:
-                    logger.error(f"name_pattern is None, pattern: {pattern}, nums: {nums}")
-            else:
-                assert self.name_pattern == pattern, "name pattern should be the same"
 
         if not self.raw:
             self.raw = e_dict.copy()
-
-            if is_mergeevent:
-                self.name_pattern = event.name_pattern
+            if "name_pattern" not in self.raw:
+                self.raw["name_pattern"] = pattern
 
             if not is_mergeevent:
                 for key in self.merge_keys:
@@ -248,3 +249,13 @@ class MergeEvent(Event):
 
     def to_dict(self) -> Dict[str, Any]:
         return self.raw
+    
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any]) -> MergeEvent:
+        assert "name_pattern" in raw, "name_pattern should be in raw"
+
+        obj = cls.__new__(cls)
+        obj.raw = raw.copy()
+        obj.merge_keys = ["ts", "dur", "id", "args", "name"]
+
+        return obj

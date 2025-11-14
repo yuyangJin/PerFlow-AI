@@ -10,7 +10,7 @@ class BaseNode(ABC):
         pass
 
     @abstractmethod
-    def get_events(self) -> List[BaseEvent]:
+    def get_events(self):
         pass
 
     @abstractmethod
@@ -43,20 +43,20 @@ class BaseNode(ABC):
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, data: Dict):
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
         pass
 
     # TODO: 这里需要一个access接口
     
 class Node(BaseNode):
-    def __init__(self, events: List[Event] = None):
+    def __init__(self, events: List[Event] = []):
         self.events: List[Event] = events or []
-        self.children: List[BaseNode] = []
+        self.children: List[Union[Node, RefNode]] = []
 
-    def get_events(self) -> List[BaseEvent]:
+    def get_events(self) -> List[Event]:
         return self.events
     
-    def get_all_events(self) -> List[BaseEvent]:
+    def get_all_events(self) -> List[Event]:
         all_events = self.events.copy()
         for child in self.children:
             all_events.extend(child.get_all_events())
@@ -65,19 +65,19 @@ class Node(BaseNode):
     def get_node_count(self) -> int:
         return 1
 
-    def add_events(self, events: List[BaseEvent]):
+    def add_events(self, events: List[Event]):
         self.events.extend(events)
 
-    def get_children(self) -> List[BaseNode]:
+    def get_children(self) -> List[Union[Node, RefNode]]:
         return self.children
 
-    def set_children(self, children: List[BaseNode]):
+    def set_children(self, children: List[Union[Node, RefNode]]):
         self.children = children
 
-    def add_child(self, child: BaseNode):
+    def add_child(self, child: Union[Node, RefNode]):
         self.children.append(child)
 
-    def is_same_node(self, other: BaseNode) -> bool:
+    def is_same_node(self, other: Union[Node, TemplateNode]) -> bool:
         if isinstance(other, RefNode):
             return other.is_same_node(self)
 
@@ -104,9 +104,20 @@ class Node(BaseNode):
             "children": [c.to_dict() for c in self.children]
         }
     
-    def from_dict(cls, data: Dict):
-        # TODO:
-        pass
+    @classmethod
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
+        assert "events" in data, "Node must have events."
+        assert "children" in data, "Node must have children."
+
+        obj = cls.__new__(cls)
+        obj.events = [Event.from_dict(e) for e in data["events"]]
+        obj.children = []
+        for c in data["children"]:
+            if "ref_node_id" in c:
+                obj.children.append(RefNode.from_dict(c, templates_dict, templates))
+            else:
+                obj.children.append(Node.from_dict(c, templates_dict, templates))
+        return obj
 
 class TemplateNode(BaseNode):
     def __init__(self, nodes: List[Union[Node, TemplateNode]]):
@@ -214,9 +225,19 @@ class TemplateNode(BaseNode):
             "children": [c.to_dict() for c in self.children]
         }
     
-    def from_dict(cls, data: Dict):
-        # TODO:
-        pass
+    @classmethod
+    def from_dict(cls, data: Dict, templates_dict: Dict[int, Any] = {}, templates: Dict[int, TemplateNode] = {}):
+        assert "events" in data, "TemplateNode must have events."
+        assert "children" in data, "TemplateNode must have children."
+        obj = cls.__new__(cls)
+        obj.events = [MergeEvent.from_dict(e) for e in data["events"]]
+        obj.children = []
+        for c in data["children"]:
+            if "ref_node_id" in c:
+                obj.children.append(RefNode.from_dict(c, templates_dict, templates))
+            else:
+                obj.children.append(TemplateNode.from_dict(c, templates_dict, templates))
+        return obj
 
 
 class RefNode(BaseNode):
@@ -255,6 +276,11 @@ class RefNode(BaseNode):
             "index": self.index
         }
     
-    def from_dict(cls, data: Dict):
-        # TODO:
-        pass
+    @classmethod
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
+        assert "ref_node_id" in data, "RefNode must have a ref_node_id."
+        assert "index" in data, "RefNode must have an index."
+        assert data["ref_node_id"] in templates_dict, f"RefNode ref_node_id {data['ref_node_id']} not found in templates_dict {templates_dict.keys()}."
+        if int(data["ref_node_id"]) not in templates:
+            templates[data["ref_node_id"]] = TemplateNode.from_dict(templates_dict[data["ref_node_id"]], templates_dict, templates)
+        return RefNode(templates[data["ref_node_id"]], int(data["index"]))

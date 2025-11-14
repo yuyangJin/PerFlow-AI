@@ -3,9 +3,10 @@ import argparse
 import os
 import sys
 from pympler import asizeof
+import filecmp
 
 
-def compress_demo(input_file: str, origin_file: str, output_file: str):
+def compress_demo(input_file: str, origin_file: str, output_file: str, restore_file: str):
     print(f"📥 Loading trace from {input_file}")
     trace = Trace.from_json(input_file)
 
@@ -13,7 +14,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str):
     trace_size_mem = asizeof.asizeof(trace)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
 
-    # 写出原始 trace 到二进制文件
+    # 写出原始 trace 到二进制（或 JSON）文件
     print(f"💾 Writing original trace to {origin_file}")
     trace.write_json_file(origin_file)
 
@@ -46,9 +47,28 @@ def compress_demo(input_file: str, origin_file: str, output_file: str):
     print(f"  💾 File compression ratio: {file_compression_ratio:.2%} (↓ {1 - file_compression_ratio:.2%})")
     print(f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} (↓ {1 - mem_compression_ratio:.2%})")
 
-    # 测试读取压缩 trace
-    print("✅ Testing reading compressed trace...")
+    # 测试 correctness
+    print("\n🔍 Testing correctness...")
+
+    # 1) 读取压缩 trace
+    print(f"📥 Loading compressed trace from {output_file}")
     compressed_trace = CompressedTrace.from_json(output_file)
+    print("✅ Loaded successfully.")
+
+    # 2) 写出复原 trace
+    print(f"💾 Writing reconstructed trace to {restore_file}")
+    compressed_trace.write_json_file(restore_file, origin=True)
+
+    # 3) 比较文件是否一致
+    print("🔎 Comparing reconstructed file with original...")
+
+    if filecmp.cmp(origin_file, restore_file, shallow=False):
+        print("✅ Correctness test PASSED: reconstructed file == original file")
+    else:
+        print("❌ Correctness test FAILED: reconstructed file != original file")
+        print("   You should inspect differences, e.g.:")
+        print(f"   diff -u {origin_file} {restore_file}")
+
     print("Done.")
 
 
@@ -57,9 +77,10 @@ def main():
     parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json", type=str, help="input trace file path")
     parser.add_argument("--origin_file", default="origin.bin", type=str, help="path to write original trace file")
     parser.add_argument("--output_file", default="compressed.bin", type=str, help="output compressed trace file path")
+    parser.add_argument("--restore_file", default="restore.bin", type=str, help="path to write restored trace file")
     args = parser.parse_args()
 
-    compress_demo(args.input_file, args.origin_file, args.output_file)
+    compress_demo(args.input_file, args.origin_file, args.output_file, args.restore_file)
 
 
 if __name__ == "__main__":

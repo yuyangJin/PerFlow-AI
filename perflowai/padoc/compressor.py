@@ -25,25 +25,27 @@ class Compressor(ABC):
 
 class TemplateCompressor(Compressor):
 
-    def intra_compress(self, trace: BaseTrace, rank: int = 0) -> BaseTrace:
+    def intra_compress(self, trace: BaseTrace, rank: str = "0") -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
 
-        self.templates: Dict[int, BaseNode] = {}
+        self.templates: Dict[str, Union[TemplateNode, RefNode]] = {}
         self.next_template_id = 0
 
         # rank -> pid -> tid -> node
-        compressed_ranks: Dict[int, Dict[int, Dict[int, BaseNode]]] = {}
+        compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
+
+        logger.info(f"Intra compressing rank {rank}")
         
         for r, pid, tid, node in trace.iter_nodes(rank):
+            logger.info(f"Compressing pid {pid} tid {tid}")
 
-            compressed_ranks.setdefault(r, {}).setdefault(pid, {})
+            compressed_ranks.setdefault(str(r), {}).setdefault(str(pid), {})
 
             root = self._build_call_tree(node)
             root = self._find_template_node(root)
-            compressed_ranks[r][pid][tid] = root
+            compressed_ranks[str(r)][str(pid)][str(tid)] = root
 
-        logger.info(f"compressed {len(compressed_ranks)} ranks")
-        logger.info(f"compressed {len(self.templates)} templates")
+        logger.info(f"There are {len(self.templates)} templates")
 
         return CompressedTrace(self.templates, compressed_ranks, trace.get_metadata())
 
@@ -75,7 +77,6 @@ class TemplateCompressor(Compressor):
 
             stack.append(new_node)
 
-        logger.info(f"build call tree: {len(roots)} roots")
         if len(roots) == 1:
             root = roots[0]
         else:
@@ -104,7 +105,6 @@ class TemplateCompressor(Compressor):
                     continue
                 
                 if children[i].is_same_node(children[j]):
-                    logger.debug(f"found same node: {children[i].get_events()[0].get_name()} and {children[j].get_events()[0].get_name()}")
                     current_group.append(children[j])
                     used[j] = True
 
@@ -124,7 +124,7 @@ class TemplateCompressor(Compressor):
     
     def _find_template_node(self, node: Node) -> Node:
         # there is no ref node
-        
+   
         if not hasattr(node, "id"): # only root template node has id
             tem = self._find_node_in_templates(node)
             if tem is not None:
@@ -132,7 +132,7 @@ class TemplateCompressor(Compressor):
                 tem.add_nodes([node])
 
                 return RefNode(tem, index)
-        
+
         groups, _ = self._group_same_children(node)
         node_to_ref_node: Dict[Node, RefNode] = {}
         for group in groups:
@@ -146,8 +146,8 @@ class TemplateCompressor(Compressor):
                     index = next_index
             else:
                 tem = TemplateNode(group)
-                tem.id = self.next_template_id
-                self.templates[self.next_template_id] = tem
+                tem.id = str(self.next_template_id)
+                self.templates[str(self.next_template_id)] = tem
                 self.next_template_id += 1
                 index = 0
                 for n in group:
