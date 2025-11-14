@@ -2,7 +2,7 @@ from __future__ import annotations
 from .event import BaseEvent, Event, MergeEvent
 from .utils import logger
 from abc import ABC, abstractmethod
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Union, Any, Optional
 
 
 class BaseNode(ABC):
@@ -11,6 +11,10 @@ class BaseNode(ABC):
 
     @abstractmethod
     def get_events(self) -> List[BaseEvent]:
+        pass
+
+    @abstractmethod
+    def get_all_events(self) -> List[BaseEvent]:
         pass
 
     @abstractmethod
@@ -51,6 +55,15 @@ class Node(BaseNode):
 
     def get_events(self) -> List[BaseEvent]:
         return self.events
+    
+    def get_all_events(self) -> List[BaseEvent]:
+        all_events = self.events.copy()
+        for child in self.children:
+            all_events.extend(child.get_all_events())
+        return all_events
+    
+    def get_node_count(self) -> int:
+        return 1
 
     def add_events(self, events: List[BaseEvent]):
         self.events.extend(events)
@@ -98,8 +111,8 @@ class Node(BaseNode):
 class TemplateNode(BaseNode):
     def __init__(self, nodes: List[Union[Node, TemplateNode]]):
         self.events : List[MergeEvent] = []
-        self.children : List[TemplateNode] = []
-        self.node_count = len(nodes)
+        self.children : List[Union[TemplateNode, RefNode]] = []
+        self.node_count = sum([n.get_node_count() for n in nodes])
         
         logger.debug("TemplateNode __init__: Merging %d nodes", len(nodes))
         event_count = len(nodes[0].events)
@@ -122,7 +135,7 @@ class TemplateNode(BaseNode):
 
     def add_nodes(self, nodes: List[Union[Node, TemplateNode]]):
         logger.debug(f"TemplateNode add_nodes: {[type(n) for n in nodes]}")
-        self.node_count += len(nodes)
+        self.node_count += sum([n.get_node_count() for n in nodes])
         event_count = len(self.events)
         for n in nodes:
             assert len(n.events) == event_count, "All nodes must have the same number of events as original node to merge."
@@ -141,6 +154,21 @@ class TemplateNode(BaseNode):
 
     def get_events(self) -> List[MergeEvent]:
         return self.events
+    
+    def get_all_events(self) -> List[BaseEvent]:
+        all_events = self.events.copy()
+        for child in self.children:
+            all_events.extend(child.get_all_events())
+        return all_events
+    
+    def get_events_by_index(self, index: int) -> List[Event]:
+        all_events = [e.get_event_by_index(index) for e in self.events]
+        for child in self.children:
+            if isinstance(child, TemplateNode):
+                all_events.extend(child.get_events_by_index(index))
+            else:
+                all_events.extend(child.get_all_events(index))
+        return all_events
     
     def get_node_count(self) -> int:
         return self.node_count
@@ -201,7 +229,12 @@ class RefNode(BaseNode):
         pass
 
     def get_events(self) -> List[BaseEvent]:
-        pass
+        return self.ref.get_events_by_index(self.index)
+    
+    def get_all_events(self, index: Optional[int] = None) -> List[BaseEvent]:
+        if index is not None:
+            return self.ref.get_events_by_index(self.index + index)
+        return self.ref.get_events_by_index(self.index)
 
     def add_events(self, events: List[BaseEvent]):
         pass
@@ -216,8 +249,9 @@ class RefNode(BaseNode):
         pass
 
     def to_dict(self) -> Dict:
+        assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
         return {
-            "ref_node_id": 0, # TODO: 这里需要一个ref_node_id
+            "ref_node_id": self.ref.id,
             "index": self.index
         }
     

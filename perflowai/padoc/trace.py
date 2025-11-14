@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from abc import ABC, abstractmethod
 import msgpack
 import os
+import tqdm
 
 class BaseTrace:
 
@@ -107,7 +108,7 @@ class Trace(BaseTrace):
 
             node.add_events([Event(e)])
 
-    def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
+    def write_json_file(self, path: str, rank: int = 0, origin: bool = True):
         out = {}
 
         if origin:
@@ -118,11 +119,13 @@ class Trace(BaseTrace):
             for r, processes in rank_items:
                 for pid, tids in processes.items():
                     for tid, node in tids.items():
-                        for e in node.events:
+                        for e in node.get_events():
                             event_dict = e.to_dict().copy()
                             event_dict["pid"] = pid
                             event_dict["tid"] = tid
                             trace_events.append(event_dict)
+
+            trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
             out = {"traceEvents": trace_events}
             out.update(self.metadata)
@@ -143,7 +146,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -164,11 +167,27 @@ class CompressedTrace(BaseTrace):
         logger.error("CompressedTrace.from_json is not implemented yet.")
 
     def write_json_file(self, path: str, rank: int = 0, origin: bool = False):
-        # TODO:
         out = {}
 
         if origin:
-            raise NotImplementedError("CompressedTrace.write_json_file is not implemented yet.")
+            out.update(self.metadata)
+            trace_events = []
+
+            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+
+            for r, processes in rank_items:
+                for pid, tids in processes.items():
+                    for tid, node in tids.items():
+                        for e in node.get_all_events():
+                            event_dict = e.to_dict().copy()
+                            event_dict["pid"] = pid
+                            event_dict["tid"] = tid
+                            trace_events.append(event_dict)
+
+            trace_events = sorted(trace_events, key=lambda x: x["ts"])
+
+            out = {"traceEvents": trace_events}
+            out.update(self.metadata)
 
         else:
             out["metadata"] = self.metadata
@@ -190,7 +209,7 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)

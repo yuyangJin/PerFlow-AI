@@ -141,8 +141,9 @@ class TemplateCompressor(Compressor):
                 index = tem.get_node_count()
                 tem.add_nodes(group)
                 for n in group:
+                    next_index = index + n.get_node_count()
                     node_to_ref_node[n] = RefNode(tem, index)
-                    index += 1
+                    index = next_index
             else:
                 tem = TemplateNode(group)
                 tem.id = self.next_template_id
@@ -150,8 +151,9 @@ class TemplateCompressor(Compressor):
                 self.next_template_id += 1
                 index = 0
                 for n in group:
+                    next_index = index + n.get_node_count()
                     node_to_ref_node[n] = RefNode(tem, index)
-                    index += 1
+                    index = next_index
 
                 self._find_template_node(tem)
 
