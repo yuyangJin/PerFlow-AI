@@ -79,7 +79,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
     # write the original trace to a binary file
     print(f"💾 Writing original trace to {origin_file}")
-    trace.write_json_file(origin_file)
+    trace.write_file(origin_file)
 
     # get the original file size
     origin_file_size = os.path.getsize(origin_file)
@@ -96,7 +96,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
     # write the compressed trace to a binary file
     print(f"💾 Writing compressed trace to {output_file}")
-    compressed_trace.write_json_file(output_file)
+    compressed_trace.write_file(output_file)
 
     # get the compressed file size
     compressed_file_size = os.path.getsize(output_file)
@@ -125,7 +125,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
     # 2) write the reconstructed trace to a binary file
     print(f"💾 Writing reconstructed trace to {restore_file}")
-    compressed_trace.write_json_file(restore_file, origin=True)
+    compressed_trace.write_file(restore_file, origin=True)
 
     # 3) compare the reconstructed file with the original file
     print("🔎 Comparing reconstructed file with original...")

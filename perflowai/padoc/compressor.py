@@ -1,43 +1,71 @@
+"""Compressor implementations for trace compression.
+
+This module defines abstract and concrete compressor classes used to
+perform intra-rank and inter-rank compression on trace structures.
+Each compressor follows a unified interface and provides both compression
+and decompression methods.
+"""
+
 from __future__ import annotations
-from .trace import BaseTrace, Trace, CompressedTrace
-from .node import BaseNode, Node, TemplateNode, RefNode
-from .event import Event, MergeEvent
-from .utils import logger
 from typing import List, Dict, Union, Optional, Tuple
 from abc import ABC, abstractmethod
+from .trace import BaseTrace, Trace, CompressedTrace
+from .node import BaseNode, Node, TemplateNode, RefNode
+from .utils import logger
 
 
 class Compressor(ABC):
-    
+    """Abstract base class for all compressors.
+
+    Subclasses must implement methods for intra-rank and inter-rank
+    compression and decompression.
+    """
+
     @abstractmethod
     def intra_compress(self, trace: BaseTrace) -> BaseTrace:
-        raise NotImplementedError
-    
-    def inter_compress(self, trace: BaseTrace) -> BaseTrace:
+        """Perform intra-rank compression."""
         raise NotImplementedError
 
-    def intra_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
+    def inter_compress(self, trace: BaseTrace) -> BaseTrace:
+        """Perform inter-rank compression."""
         raise NotImplementedError
-    
+
+    @abstractmethod
+    def intra_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
+        """Perform intra-rank decompression."""
+        raise NotImplementedError
+
     def inter_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
+        """Perform inter-rank decompression."""
         raise NotImplementedError
 
 
 class TemplateCompressor(Compressor):
+    """Template-based compressor using subtree deduplication.
+
+    This compressor identifies repeated subtrees in the execution trace
+    (common in transformer layers and decoding loops) and replaces them
+    with references to shared ``TemplateNode`` structures.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.templates: Dict[str, Union[TemplateNode, RefNode]] = {}
+        self.next_template_id = 0
 
     def intra_compress(self, trace: BaseTrace, rank: str = "0") -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
 
-        self.templates: Dict[str, Union[TemplateNode, RefNode]] = {}
+        self.templates = {}
         self.next_template_id = 0
 
         # rank -> pid -> tid -> node
         compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
 
-        logger.info(f"Intra compressing rank {rank}")
-        
+        logger.info("Intra compressing rank %s", rank)
+
         for r, pid, tid, node in trace.iter_nodes(rank):
-            logger.info(f"Compressing pid {pid} tid {tid}")
+            logger.info("Compressing pid %s tid %s", pid, tid)
 
             compressed_ranks.setdefault(str(r), {}).setdefault(str(pid), {})
 
@@ -45,18 +73,17 @@ class TemplateCompressor(Compressor):
             root = self._find_template_node(root)
             compressed_ranks[str(r)][str(pid)][str(tid)] = root
 
-        logger.info(f"There are {len(self.templates)} templates")
+        logger.info("There are %d templates", len(self.templates))
 
         return CompressedTrace(self.templates, compressed_ranks, trace.get_metadata())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
-        # TODO
-        pass
+        raise NotImplementedError
 
     def _build_call_tree(self, node: Node) -> Node:
         events = sorted(node.events, key=lambda e: e.get_ts())
-        
+
         roots: List[Node] = []
         stack: List[Node] = []
 
@@ -87,7 +114,7 @@ class TemplateCompressor(Compressor):
         root = self._flatten_tree(root)
 
         return root
-    
+
     def _group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
         children = node.get_children()
         n = len(children)
@@ -103,7 +130,7 @@ class TemplateCompressor(Compressor):
             for j in range(i+1, n):
                 if used[j]:
                     continue
-                
+
                 if children[i].is_same_node(children[j]):
                     current_group.append(children[j])
                     used[j] = True
@@ -115,16 +142,16 @@ class TemplateCompressor(Compressor):
         unused = [children[i] for i in range(n) if not used[i]]
 
         return groups, unused
-    
+
     def _find_node_in_templates(self, node: Node) -> Optional[TemplateNode]:
         for template in self.templates.values():
             if template.is_same_node(node):
                 return template
         return None
-    
+
     def _find_template_node(self, node: Node) -> Node:
         # there is no ref node
-   
+
         if not hasattr(node, "id"): # only root template node has id
             tem = self._find_node_in_templates(node)
             if tem is not None:
@@ -167,18 +194,16 @@ class TemplateCompressor(Compressor):
         node.children = new_children
 
         return node
-    
+
     def _compress_templates(self):
-        # TODO:
-        pass
-        
+        raise NotImplementedError
+
 
     def _flatten_tree(self, node: Node):
         if (len(node.get_children())) == 0:
             return node
-        
+
         while (len(node.get_children())) == 1:
-            logger.debug(f"flattening {node.get_children()[0].get_events()[0].get_name()} to {node.get_events()[-1].get_name()}")
             node.add_events(node.get_children()[0].get_events())
             new_children = node.get_children()[0].get_children()
             node.children = new_children
@@ -193,18 +218,23 @@ class TemplateCompressor(Compressor):
 
     def intra_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
         assert isinstance(compressed_trace, Trace), "Compressed trace must be of type Trace"
-        # TODO
-        pass
-    
+        raise NotImplementedError
+
     def inter_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
         assert isinstance(compressed_trace, Trace), "Compressed trace must be of type Trace"
-        # TODO
-        pass
+        raise NotImplementedError
 
 class SegmentDeltaCompressor(Compressor):
+    """Segmented delta compression.
+
+    Applies segmented delta compression to timestamps using timestamp differences.
+    Additionally, leverages the periodic patterns in the IDs embedded in names to
+    achieve further compression.
+    """
+
     def intra_compress(self, trace: BaseTrace) -> BaseTrace:
         pass
-    
+
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         pass
 
@@ -213,16 +243,15 @@ class SegmentDeltaCompressor(Compressor):
         TODO: 改为英文
         分段压缩时间戳
         """
-        # TODO: 
+        # TODO:
         # 1. 确定返回什么数据
         # 2. 实现分段压缩算法
         # 3. 实现分段解压算法，因为这里我不知道你如何设计数据结构，所以解压函数的声明没写
-        pass
+        raise NotImplementedError
 
 
-    
     def intra_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
         pass
-    
+
     def inter_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
         pass

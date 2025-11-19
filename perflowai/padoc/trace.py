@@ -1,96 +1,125 @@
+"""Trace structures for compression, serialization, and reconstruction.
+
+This module defines three main trace representations used in the profiling
+and compression pipeline:
+
+- Trace: Raw, uncompressed hierarchical trace structure organized by
+rank → pid → tid, where each thread is represented by a `Node` containing
+its list of `Event` objects.
+
+- CompressedTrace: A template-based compressed representation that reduces
+storage by deduplicating repeated subtrees (e.g., Transformer layers,
+decode steps). Threads may contain `Node` or `RefNode` entries referencing
+shared `TemplateNode` objects.
+
+- BaseTrace: Abstract interface implemented by all trace types, providing
+unified metadata access, node traversal utilities, and serialization
+interfaces.
+
+This module serves as the core data model for the PADoC/trace compression
+pipeline, enabling both efficient storage and faithful reconstruction.
+"""
+
 from __future__ import annotations
 import json
-from .event import Event
-from .node import BaseNode, Node, TemplateNode, RefNode
-from .utils import logger
 from typing import Any, Dict, List, Optional, Union
 from abc import ABC, abstractmethod
-import msgpack
 import os
-import tqdm
+import msgpack
+from .event import Event
+from .node import BaseNode, Node, TemplateNode, RefNode
 
-class BaseTrace:
+class BaseTrace(ABC):
+    """Abstract base class for all trace types in the trace tree.
 
-    @abstractmethod
+    This interface defines a unified API for concrete trace implementations
+    (Trace, TemplateTrace, CompressedTrace). Any subclass must implement metadata
+    access, node access, and serialization.
+
+    Attributes:
+    metadata (Dict[str, Any]): Metadata about the trace such as version,
+    model name, or profiling configuration.
+    ranks (Dict[str, Dict[str, Dict[str, BaseNode]]]): Hierarchical mapping
+    of rank → pid → tid → Node.
+    """
+
+    def __init__(self, metadata: Dict[str, Any] | None = None):
+        self.metadata: Dict[str, Any] = metadata if metadata else {}
+        self.ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
+
     def get_metadata(self) -> Dict[str, Any]:
-        pass
+        """Return the trace metadata."""
+        return self.metadata
 
-    @abstractmethod
     def get_ranks(self) -> List[str]:
-        pass
+        """Return the list of ranks in the trace."""
+        return list(self.ranks.keys())
 
-    @abstractmethod
     def get_pids(self, rank: str) -> List[str]:
-        pass
+        """Return the list of pids in the specified rank."""
+        return list(self.ranks.get(rank, {}).keys())
 
-    @abstractmethod
     def get_tids(self, rank: str, pid: str) -> List[str]:
-        pass
+        """Return the list of tids in the specified rank and pid."""
+        return list(self.ranks.get(rank, {}).get(pid, {}).keys())
 
-    @abstractmethod
     def get_node(self, rank: str, pid: str, tid: str) -> Optional[BaseNode]:
-        pass
+        """Return the node for the specified rank, pid, and tid."""
+        return self.ranks.get(rank, {}).get(pid, {}).get(tid)
 
-    @abstractmethod
-    def set_node(self, rank: str, pid: str, tid: str, node):
-        pass
+    def set_node(self, rank: str, pid: str, tid: str, node: BaseNode):
+        """Set the node for the specified rank, pid, and tid."""
+        self.ranks.setdefault(rank, {}).setdefault(pid, {})[tid] = node
 
-    @abstractmethod
     def iter_nodes(self, rank: Optional[str] = None):
-        pass
-    
+        """Iterate over all nodes in the trace, optionally filtering by rank."""
+        rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+        for r, processes in rank_items:
+            for pid, tids in processes.items():
+                for tid, node in tids.items():
+                    yield r, pid, tid, node
+
     @classmethod
     @abstractmethod
     def from_json(cls, path: str) -> BaseTrace:
-        pass
+        """Create a trace from a JSON file."""
+        return None
 
     @abstractmethod
-    def write_json_file(self, path: str, rank: str = "0", origin: bool = False):
-        pass
+    def write_file(self, path: str, rank: str = "0", origin: bool = False):
+        """Write the trace to a file."""
+        return
 
 class Trace(BaseTrace):
-    def __init__(self, events: Optional[List[Dict[str, Any]]] = None, metadata: Optional[Dict[str, Any]] = None):
-        # rank -> pid -> tid -> node
-        self.ranks: Dict[str, Dict[str, Dict[str, Node]]] = {}
-        self.metadata: Dict[str, Any] = metadata if metadata else {}
+    """Concrete uncompressed trace type.
+
+    This class represents the raw profiler trace, structured hierarchically by
+    rank → pid → tid. Each thread is represented by a `Node` containing its
+    chronological list of `Event` objects.
+
+    Responsibilities:
+    - Constructing the tree structure from event lists
+    - Providing raw access to nodes and metadata
+    - Serializing to JSON/msgpack in both raw and structured forms
+    """
+
+    def __init__(self, events: List[Dict[str, Any]] | None = None,
+                 metadata: Dict[str, Any] | None = None):
+        super().__init__(metadata)
 
         if events:
             self.add_events(events)
 
     @classmethod
     def from_json(cls, path: str) -> Trace:
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding="utf-8") as f:
             data: Dict[str, Any] = json.load(f)
         events: List[Dict[str, Any]] = data.get("traceEvents", [])
         metadata: Dict[str, Any] = {k: v for k, v in data.items() if k != "traceEvents"}
         return cls(events, metadata)
-    
-    def get_metadata(self) -> Dict[str, Any]:
-        return self.metadata
 
-    def get_ranks(self) -> List[str]:
-        return list(self.ranks.keys())
-
-    def get_pids(self, rank: str) -> List[str]:
-        return list(self.ranks.get(rank, {}).keys())
-
-    def get_tids(self, rank: str, pid: str) -> List[str]:
-        return list(self.ranks.get(rank, {}).get(pid, {}).keys())
-
-    def get_node(self, rank: str, pid: str, tid: str) -> Optional[Node]:
-        return self.ranks.get(rank, {}).get(pid, {}).get(tid)
-
-    def set_node(self, rank: str, pid: str, tid: str, node: Node):
-        self.ranks.setdefault(rank, {}).setdefault(pid, {})[tid] = node
-
-    def iter_nodes(self, rank: Optional[str] = None):
-        rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
-        for r, processes in rank_items:
-            for pid, tids in processes.items():
-                for tid, node in tids.items():
-                    yield r, pid, tid, node
-    
     def add_events(self, events: List[Dict[str, Any]], rank: str = "0"):
+        """Add events to the trace."""
         if not events:
             return
 
@@ -108,7 +137,7 @@ class Trace(BaseTrace):
 
             node.add_events([Event(e)])
 
-    def write_json_file(self, path: str, rank: str = "0", origin: bool = True):
+    def write_file(self, path: str, rank: str = "0", origin: bool = True):
         out = {}
 
         if origin:
@@ -145,7 +174,7 @@ class Trace(BaseTrace):
         ext = os.path.splitext(path)[1].lower()
 
         if ext == ".json":
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(out, f)
         else:
             with open(path, "wb") as f:
@@ -153,18 +182,31 @@ class Trace(BaseTrace):
 
 
 class CompressedTrace(BaseTrace):
-    def __init__(self, templates: Dict[str, TemplateNode], ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]], metadata: Dict[str, Any] = {}):
+    """Trace representation using template-based compression.
+
+    This compressed form stores:
+    - `templates`: a dictionary of TemplateNode objects representing
+    canonical subtrees.
+    - `ranks`: same hierarchy as `Trace`, but nodes may reference
+    template IDs via `RefNode` instead of storing full children.
+
+    This format dramatically reduces storage for repetitive transformer
+    layers, decode steps, or repeated micro-batches.
+    """
+
+    def __init__(self, templates: Dict[str, TemplateNode],
+                 ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]],
+                 metadata: Dict[str, Any] | None = None):
+
+        super().__init__(metadata)
+        self.ranks = ranks
 
         self.templates: Dict[str, TemplateNode] = templates
-
-        # rank -> pid -> tid -> node
-        self.ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = ranks
-        self.metadata: Dict[str, Any] = metadata if metadata else {}
 
     @classmethod
     def from_json(cls, path: str) -> CompressedTrace:
         if path.endswith(".json"):
-            with open(path, 'r') as f:
+            with open(path, 'r', encoding="utf-8") as f:
                 data: Dict[str, Any] = json.load(f)
         else:
             with open(path, 'rb') as f:
@@ -184,15 +226,17 @@ class CompressedTrace(BaseTrace):
                 ranks[rank][pid] = {}
                 for tid, node_dict in thread_dict.items():
                     if "ref_node_id" in node_dict:
-                        ranks[rank][pid][tid] = RefNode.from_dict(node_dict, data["templates"], templates)
+                        ranks[rank][pid][tid] = \
+                            RefNode.from_dict(node_dict, data["templates"], templates)
                     else:
-                        ranks[rank][pid][tid] = Node.from_dict(node_dict, data["templates"], templates)
+                        ranks[rank][pid][tid] = \
+                            Node.from_dict(node_dict, data["templates"], templates)
 
         metadata = data["metadata"]
 
         return cls(templates, ranks, metadata)
 
-    def write_json_file(self, path: str, rank: str = "0", origin: bool = False):
+    def write_file(self, path: str, rank: str = "0", origin: bool = False):
         out = {}
 
         if origin:
@@ -220,8 +264,8 @@ class CompressedTrace(BaseTrace):
             out["templates"] = {}
             out["ranks"] = {}
 
-            for id, template in self.templates.items():
-                out["templates"][id] = template.to_dict()
+            for i, template in self.templates.items():
+                out["templates"][i] = template.to_dict()
 
             rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
             for r, processes in rank_items:
@@ -234,7 +278,7 @@ class CompressedTrace(BaseTrace):
         ext = os.path.splitext(path)[1].lower()
 
         if ext == ".json":
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(out, f)
         else:
             with open(path, "wb") as f:
