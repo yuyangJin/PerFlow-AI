@@ -1,65 +1,133 @@
-from perflowai.padoc import Trace, Compressor, TemplateCompressor, CompressedTrace
-import argparse
+"""
+Command-line tool for compressing Torch Profiler trace files.
+
+This script loads a trace, compresses it using TemplateCompressor,
+writes both original and compressed outputs, reconstructs the trace,
+and verifies correctness by comparing the reconstructed file against
+the original.
+
+Run with:
+
+    python compress_demo.py --input_file <trace.json> \
+        --origin_file <origin.bin> \
+        --output_file <compressed.bin> \
+        --reconstruct_file <reconstructed.bin>
+"""
+
 import os
-import sys
-from pympler import asizeof
+import argparse
 import filecmp
+from pympler import asizeof
+from perflowai.padoc import Trace, TemplateCompressor, CompressedTrace
 
 
 def compress_demo(input_file: str, origin_file: str, output_file: str, restore_file: str):
+    """
+    Compress a PerFlow-AI trace using TemplateCompressor, evaluate compression
+    performance (file size + memory size), and verify correctness by reconstructing
+    the trace and comparing it with the original.
+
+    This function performs the following steps:
+        1. Load a Trace object from the JSON trace file.
+        2. Measure memory size of the original Trace object.
+        3. Write the original trace to a JSON file.
+        4. Compress the trace using TemplateCompressor.
+        5. Measure memory and file size after compression.
+        6. Save the compressed trace.
+        7. Re-load the compressed trace, reconstruct the original trace, and save it.
+        8. Compare the reconstructed trace file with the original file using a byte-level diff.
+
+    Args:
+        input_file (str):
+            Path to the input JSON trace file.
+        origin_file (str):
+            Path to write the serialized original trace.
+        output_file (str):
+            Path to write the compressed trace file.
+        restore_file (str):
+            Path to write the reconstructed (decompressed) trace.
+
+    Returns:
+        None
+            The function prints compression statistics and correctness test results
+            directly to stdout. No value is returned.
+
+    Raises:
+        FileNotFoundError:
+            If `input_file` does not exist.
+        JSONDecodeError:
+            If the input trace JSON file is malformed.
+        Exception:
+            Any unexpected errors raised during trace loading, compression,
+            serialization, or comparison.
+
+    Example:
+        >>> compress_demo(
+        ...     input_file="profiler.json",
+        ...     origin_file="origin.bin",
+        ...     output_file="compressed.bin",
+        ...     restore_file="reconstructed.bin"
+        ... )
+    """
+
     print(f"📥 Loading trace from {input_file}")
     trace = Trace.from_json(input_file)
 
-    # 计算原始对象内存占用
+    # get the original trace memory size
     trace_size_mem = asizeof.asizeof(trace)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
 
-    # 写出原始 trace 到二进制（或 JSON）文件
+    # write the original trace to a binary file
     print(f"💾 Writing original trace to {origin_file}")
     trace.write_json_file(origin_file)
 
-    # 获取原始文件大小
+    # get the original file size
     origin_file_size = os.path.getsize(origin_file)
     print(f"📦 Original file size: {origin_file_size / 1024 / 1024:.2f} MB")
 
-    # 压缩
+    # compress the trace
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.intra_compress(trace)
 
-    # 计算压缩后内存占用
+    # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)
     print(f"🧠 Compressed Trace memory size: {compressed_size_mem / 1024 / 1024:.2f} MB")
 
-    # 写出压缩后的文件
+    # write the compressed trace to a binary file
     print(f"💾 Writing compressed trace to {output_file}")
     compressed_trace.write_json_file(output_file)
 
-    # 获取压缩后文件大小
+    # get the compressed file size
     compressed_file_size = os.path.getsize(output_file)
     print(f"📦 Compressed file size: {compressed_file_size / 1024 / 1024:.2f} MB")
 
-    # 计算压缩率
+    # calculate the compression ratio
     file_compression_ratio = compressed_file_size / origin_file_size if origin_file_size else 0
     mem_compression_ratio = compressed_size_mem / trace_size_mem if trace_size_mem else 0
 
-    print(f"\n📊 Compression Summary:")
-    print(f"  💾 File compression ratio: {file_compression_ratio:.2%} (↓ {1 - file_compression_ratio:.2%})")
-    print(f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} (↓ {1 - mem_compression_ratio:.2%})")
-
-    # 测试 correctness
+    print("\n📊 Compression Summary:")
+    print(
+        f"  💾 File compression ratio: {file_compression_ratio:.2%} "
+        f"(↓ {1 - file_compression_ratio:.2%})"
+    )
+    print(
+        f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} "
+        f"(↓ {1 - mem_compression_ratio:.2%})"
+    )
+    # test correctness
     print("\n🔍 Testing correctness...")
 
-    # 1) 读取压缩 trace
+    # 1) load the compressed trace
     print(f"📥 Loading compressed trace from {output_file}")
     compressed_trace = CompressedTrace.from_json(output_file)
     print("✅ Loaded successfully.")
 
-    # 2) 写出复原 trace
+    # 2) write the reconstructed trace to a binary file
     print(f"💾 Writing reconstructed trace to {restore_file}")
     compressed_trace.write_json_file(restore_file, origin=True)
 
-    # 3) 比较文件是否一致
+    # 3) compare the reconstructed file with the original file
     print("🔎 Comparing reconstructed file with original...")
 
     if filecmp.cmp(origin_file, restore_file, shallow=False):
@@ -73,14 +141,19 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
 
 def main():
+    """Entry point for the command-line interface."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json", type=str, help="input trace file path")
-    parser.add_argument("--origin_file", default="origin.bin", type=str, help="path to write original trace file")
-    parser.add_argument("--output_file", default="compressed.bin", type=str, help="output compressed trace file path")
-    parser.add_argument("--restore_file", default="restore.bin", type=str, help="path to write restored trace file")
+    parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json",
+                        type=str, help="input trace file path")
+    parser.add_argument("--origin_file", default="origin.bin",
+                        type=str, help="path to write original trace file")
+    parser.add_argument("--output_file", default="compressed.bin",
+                        type=str, help="output compressed trace file path")
+    parser.add_argument("--reconstruct_file", default="reconstructed.bin",
+                        type=str, help="path to write restored trace file")
     args = parser.parse_args()
 
-    compress_demo(args.input_file, args.origin_file, args.output_file, args.restore_file)
+    compress_demo(args.input_file, args.origin_file, args.output_file, args.reconstruct_file)
 
 
 if __name__ == "__main__":
