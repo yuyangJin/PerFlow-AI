@@ -1,71 +1,116 @@
+"""
+Node structures for trace trees used in compression and reconstruction.
+
+This module defines three node types:
+- Node: a concrete tree node with real events and children.
+- TemplateNode: a merged representation of multiple identical nodes, storing
+  merged events and merged subtrees.
+- RefNode: a lightweight reference into a TemplateNode at a given index.
+
+All node types implement the BaseNode interface, which standardizes event
+access, traversal, comparison, and (de)serialization. This abstraction allows
+the compressor and decompressor to operate on both raw and compressed trees
+using a unified API.
+"""
+
+
 from __future__ import annotations
-from .event import BaseEvent, Event, MergeEvent
-from .utils import logger
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union, Any, Optional
+from .event import BaseEvent, Event, MergeEvent
+from .utils import logger
 
 
 class BaseNode(ABC):
-    def __init__(self):
-        pass
+    """Abstract base class for all node types in the trace tree.
+
+    This interface defines a unified API for concrete node implementations
+    (Node, TemplateNode, RefNode). Any subclass must implement event access,
+    structural access, serialization, and comparison.
+
+    Subclasses:
+        - Node: a concrete event node in the trace tree.
+        - TemplateNode: a merged/compressed representation of multiple nodes.
+        - RefNode: a reference to a TemplateNode at a specific index.
+    """
 
     @abstractmethod
     def get_events(self):
-        pass
+        """Get a list of events in this node."""
+        return []
 
     @abstractmethod
     def get_all_events(self) -> List[BaseEvent]:
-        pass
-
-    @abstractmethod
-    def add_events(self, events: List[BaseEvent]):
-        pass
+        """Get a list of all events in this node and its children."""
+        return []
 
     @abstractmethod
     def get_children(self) -> List[BaseNode]:
-        pass
+        """Get a list of children of this node."""
+        return []
 
     @abstractmethod
     def set_children(self, children: List[BaseNode]):
-        pass
+        """Set the list of children of this node."""
+        return
 
     @abstractmethod
     def add_child(self, child: BaseNode):
-        pass
+        """Add a child to this node."""
+        return
 
     @abstractmethod
     def is_same_node(self, other: BaseNode) -> bool:
-        pass
+        """Check if this node is the same as another node."""
+        return False
+
+    @abstractmethod
+    def get_node_count(self) -> int:
+        """Get the total number of nodes in this subtree."""
+        return 1
 
     @abstractmethod
     def to_dict(self) -> Dict:
-        pass
+        """Serialize this node to a dictionary."""
+        return {}
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
-        pass
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] | None = None,
+                  templates: Dict[str, TemplateNode] | None = None):
+        """Deserialize a dictionary to a node."""
+        return None
 
     # TODO: 这里需要一个access接口
-    
+
 class Node(BaseNode):
-    def __init__(self, events: List[Event] = []):
+    """A concrete tree node that stores actual Event objects.
+
+    A Node contains:
+        - A list of Event objects.
+        - A list of child nodes (Node or RefNode).
+
+    It represents the uncompressed, regular trace tree structure.
+    """
+
+    def __init__(self, events: List[Event] | None = None):
         self.events: List[Event] = events or []
         self.children: List[Union[Node, RefNode]] = []
 
     def get_events(self) -> List[Event]:
         return self.events
-    
+
     def get_all_events(self) -> List[Event]:
         all_events = self.events.copy()
         for child in self.children:
             all_events.extend(child.get_all_events())
         return all_events
-    
+
     def get_node_count(self) -> int:
         return 1
 
     def add_events(self, events: List[Event]):
+        """Add a list of events to this node."""
         self.events.extend(events)
 
     def get_children(self) -> List[Union[Node, RefNode]]:
@@ -83,18 +128,18 @@ class Node(BaseNode):
 
         if len(self.events) != len(other.get_events()):
             return False
-        
-        for i in range(len(self.events)):
-            if not self.events[i].is_same_event(other.get_events()[i]):
+
+        for i, event in enumerate(self.events):
+            if not event.is_same_event(other.get_events()[i]):
                 return False
-        
+
         if len(self.children) != len(other.get_children()):
             return False
-        
-        for i in range(len(self.children)):
-            if not self.children[i].is_same_node(other.get_children()[i]):
+
+        for i, event in enumerate(self.children):
+            if not event.is_same_node(other.get_children()[i]):
                 return False
-        
+
         return True
 
 
@@ -103,9 +148,10 @@ class Node(BaseNode):
             "events": [e.to_dict() for e in self.events],
             "children": [c.to_dict() for c in self.children]
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] | None = None,
+                  templates: Dict[str, TemplateNode] | None = None):
         assert "events" in data, "Node must have events."
         assert "children" in data, "Node must have children."
 
@@ -120,15 +166,26 @@ class Node(BaseNode):
         return obj
 
 class TemplateNode(BaseNode):
+    """A merged/compressed node representing multiple structurally-identical nodes.
+
+    TemplateNode performs hierarchical merging:
+        - MergeEvent stores merged attributes across multiple events.
+        - Subtrees are recursively merged into TemplateNode children.
+        - RefNode denotes repeated occurrences of this template.
+
+    This class is central to structural compression (template extraction).
+    """
+
     def __init__(self, nodes: List[Union[Node, TemplateNode]]):
         self.events : List[MergeEvent] = []
         self.children : List[Union[TemplateNode, RefNode]] = []
-        self.node_count = sum([n.get_node_count() for n in nodes])
-        
+        self.node_count = sum(n.get_node_count() for n in nodes)
+
         logger.debug("TemplateNode __init__: Merging %d nodes", len(nodes))
         event_count = len(nodes[0].events)
         for n in nodes[1:]:
-            assert len(n.events) == event_count, "All nodes must have the same number of events to merge."
+            assert len(n.events) == event_count, \
+                "All nodes must have the same number of events to merge."
 
         for i in range(event_count):
             events_to_merge = [n.events[i] for n in nodes]
@@ -137,7 +194,8 @@ class TemplateNode(BaseNode):
 
         children_count = len(nodes[0].children)
         for n in nodes[1:]:
-            assert len(n.children) == children_count, "All nodes must have the same number of children to merge."
+            assert len(n.children) == children_count, \
+                "All nodes must have the same number of children to merge."
 
         for i in range(children_count):
             child_nodes_to_merge = [n.children[i] for n in nodes]
@@ -145,11 +203,13 @@ class TemplateNode(BaseNode):
             self.children.append(merged_child_node)
 
     def add_nodes(self, nodes: List[Union[Node, TemplateNode]]):
-        logger.debug(f"TemplateNode add_nodes: {[type(n) for n in nodes]}")
-        self.node_count += sum([n.get_node_count() for n in nodes])
+        """Add a list of nodes to this node."""
+        logger.debug("TemplateNode add_nodes: %s", [type(n) for n in nodes])
+        self.node_count += sum(n.get_node_count() for n in nodes)
         event_count = len(self.events)
         for n in nodes:
-            assert len(n.events) == event_count, "All nodes must have the same number of events as original node to merge."
+            assert len(n.events) == event_count, \
+                "All nodes must have the same number of events as original node to merge."
 
         for i in range(event_count):
             events_to_merge = [n.events[i] for n in nodes]
@@ -157,7 +217,8 @@ class TemplateNode(BaseNode):
 
         child_count = len(self.children)
         for n in nodes:
-            assert len(n.children) == child_count, "All nodes must have the same number of children as original node to merge."
+            assert len(n.children) == child_count, \
+                "All nodes must have the same number of children as original node to merge."
 
         for i in range(child_count):
             child_nodes_to_merge = [n.children[i] for n in nodes]
@@ -165,14 +226,15 @@ class TemplateNode(BaseNode):
 
     def get_events(self) -> List[MergeEvent]:
         return self.events
-    
+
     def get_all_events(self) -> List[BaseEvent]:
         all_events = self.events.copy()
         for child in self.children:
             all_events.extend(child.get_all_events())
         return all_events
-    
+
     def get_events_by_index(self, index: int) -> List[Event]:
+        """Get a list of events at a specific index in this node and its children."""
         all_events = [e.get_event_by_index(index) for e in self.events]
         for child in self.children:
             if isinstance(child, TemplateNode):
@@ -180,13 +242,9 @@ class TemplateNode(BaseNode):
             else:
                 all_events.extend(child.get_all_events(index))
         return all_events
-    
+
     def get_node_count(self) -> int:
         return self.node_count
-
-    def add_events(self, events: List[BaseEvent]):
-        # TODO: 这里需要做一些限制，比如不能直接添加到TemplateNode，只能通过merge_nodes
-        pass
 
     def get_children(self) -> List[BaseNode]:
         return self.children
@@ -205,18 +263,18 @@ class TemplateNode(BaseNode):
 
         if len(self.events) != len(other.get_events()):
             return False
-        
-        for i in range(len(self.events)):
-            if not self.events[i].is_same_event(other.get_events()[i]):
+
+        for i, event in enumerate(self.events):
+            if not event.is_same_event(other.get_events()[i]):
                 return False
-        
+
         if len(self.children) != len(other.get_children()):
             return False
-        
-        for i in range(len(self.children)):
-            if not self.children[i].is_same_node(other.get_children()[i]):
+
+        for i, event in enumerate(self.children):
+            if not event.is_same_node(other.get_children()[i]):
                 return False
-        
+
         return True
 
     def to_dict(self) -> Dict[str, Any]:
@@ -224,9 +282,10 @@ class TemplateNode(BaseNode):
             "events": [e.to_dict() for e in self.events],
             "children": [c.to_dict() for c in self.children]
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict, templates_dict: Dict[int, Any] = {}, templates: Dict[int, TemplateNode] = {}):
+    def from_dict(cls, data: Dict, templates_dict: Dict[int, Any] | None = None,
+                  templates: Dict[int, TemplateNode] | None = None):
         assert "events" in data, "TemplateNode must have events."
         assert "children" in data, "TemplateNode must have children."
         obj = cls.__new__(cls)
@@ -241,24 +300,29 @@ class TemplateNode(BaseNode):
 
 
 class RefNode(BaseNode):
+    """A lightweight reference to a TemplateNode at a given index.
+
+    Instead of storing events or children, RefNode resolves data
+    dynamically from the template via index lookup.
+
+    This enables repeated structure references without duplication.
+    """
+
     def __init__(self, ref: TemplateNode, index: int):
         self.ref: TemplateNode = ref
         self.index: int = index
-    
+
     def is_same_node(self, other: BaseNode) -> bool:
         # TODO:
         pass
 
     def get_events(self) -> List[BaseEvent]:
         return self.ref.get_events_by_index(self.index)
-    
+
     def get_all_events(self, index: Optional[int] = None) -> List[BaseEvent]:
         if index is not None:
             return self.ref.get_events_by_index(self.index + index)
         return self.ref.get_events_by_index(self.index)
-
-    def add_events(self, events: List[BaseEvent]):
-        pass
 
     def get_children(self) -> List[BaseNode]:
         pass
@@ -269,18 +333,33 @@ class RefNode(BaseNode):
     def add_child(self, child: BaseNode):
         pass
 
+    def get_node_count(self) -> int:
+        return self.ref.get_node_count()
+
     def to_dict(self) -> Dict:
         assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
         return {
             "ref_node_id": self.ref.id,
             "index": self.index
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] = {}, templates: Dict[str, TemplateNode] = {}):
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] | None = None,
+                  templates: Dict[str, TemplateNode] | None = None):
         assert "ref_node_id" in data, "RefNode must have a ref_node_id."
         assert "index" in data, "RefNode must have an index."
-        assert data["ref_node_id"] in templates_dict, f"RefNode ref_node_id {data['ref_node_id']} not found in templates_dict {templates_dict.keys()}."
-        if int(data["ref_node_id"]) not in templates:
-            templates[data["ref_node_id"]] = TemplateNode.from_dict(templates_dict[data["ref_node_id"]], templates_dict, templates)
-        return RefNode(templates[data["ref_node_id"]], int(data["index"]))
+
+        ref_id = data["ref_node_id"]
+        assert ref_id in templates_dict, (
+            f"RefNode ref_node_id {ref_id} not found in "
+            f"templates_dict {templates_dict.keys()}."
+        )
+
+        if int(ref_id) not in templates:
+            templates[ref_id] = TemplateNode.from_dict(
+                templates_dict[ref_id],
+                templates_dict,
+                templates
+            )
+
+        return RefNode(templates[ref_id], int(data["index"]))

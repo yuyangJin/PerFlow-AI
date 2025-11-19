@@ -1,3 +1,7 @@
+"""
+This module contains utility functions for PADoc.
+"""
+
 import logging
 
 logging.basicConfig(
