@@ -277,6 +277,13 @@ class TemplateNode(BaseNode):
 
         return True
 
+    def segmented_linear_predictor_compress(self):
+        """Compress this node using segmented linear predictor."""
+        for e in self.events:
+            e.segmented_linear_predictor_compress()
+        for c in self.children:
+            c.segmented_linear_predictor_compress()
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "events": [e.to_dict() for e in self.events],
@@ -335,6 +342,10 @@ class RefNode(BaseNode):
 
     def get_node_count(self) -> int:
         return self.ref.get_node_count()
+
+    def segmented_linear_predictor_compress(self):
+        """Compress this node using segmented linear predictor."""
+        self.ref.segmented_linear_predictor_compress()
 
     def to_dict(self) -> Dict:
         assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."

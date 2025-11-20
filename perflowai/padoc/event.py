@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
+from .slp import SegmentedLinearPredictorCompressor
 
 class BaseEvent(ABC):
     """
@@ -277,6 +278,14 @@ class MergeEvent(BaseEvent):
         """Add a list of events to the merged event."""
         for event in events:
             self._add_event(event)
+
+    def segmented_linear_predictor_compress(self):
+        """Compress the merged event using segmented linear predictor."""
+        slp = SegmentedLinearPredictorCompressor()
+        for key in ["ts", "dur", "id"]:
+            if key in self.raw:
+                val = self.raw.get(key, None)
+                self.raw[key] = slp.compress_timestamps(val)
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> MergeEvent:

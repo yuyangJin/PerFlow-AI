@@ -203,6 +203,11 @@ class CompressedTrace(BaseTrace):
 
         self.templates: Dict[str, TemplateNode] = templates
 
+    def segmented_linear_predictor_compress(self):
+        """Segmented linear predictor compression for templates."""
+        for node in self.templates.values():
+            node.segmented_linear_predictor_compress()
+
     @classmethod
     def from_json(cls, path: str) -> CompressedTrace:
         if path.endswith(".json"):

@@ -89,6 +89,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.intra_compress(trace)
+    compressed_trace.segmented_linear_predictor_compress()
 
     # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)
