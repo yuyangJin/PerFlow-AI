@@ -135,6 +135,8 @@ class MergeEvent(BaseEvent):
 
         if events:
             self.add_events(events)
+        
+        self.has_compressed = False
 
     def get_name(self) -> str:
         return self.raw.get("name_pattern", "unknown")
@@ -280,6 +282,10 @@ class MergeEvent(BaseEvent):
             self._add_event(event)
 
     def segmented_linear_predictor_compress(self):
+        if self.has_compressed:
+            return
+
+        self.has_compressed = True
         """Compress the merged event using segmented linear predictor."""
         slp = SegmentedLinearPredictorCompressor()
         for key in ["ts", "dur", "id"]:

@@ -66,8 +66,10 @@ class SegmentedLinearPredictorCompressor():
             deltas: 差值数组
         """
         # 将差值转换为定点数表示（使用32位整数，16位小数）
-        scaled_deltas = [int(d * 65536) for d in deltas]
-        
+        # scaled_deltas = [int(d * 65536) for d in deltas]
+        scaled_deltas = [int(d) for d in deltas]
+
+
         # 找到差值的最小值和最大值
         min_delta = min(scaled_deltas)
         max_delta = max(scaled_deltas)
@@ -122,9 +124,11 @@ class SegmentedLinearPredictorCompressor():
         
         # 处理最后一个不完整的字节
         if bits_used > 0:
-            # 左移使数据对齐到字节的高位
-            current_byte <<= (8 - bits_used)
-            self.compressed_deltas.append(current_byte)
+            # 确保移位不是负数
+            if bits_used < 8:
+                # 左移使数据对齐到字节的高位
+                current_byte <<= (8 - bits_used)
+                self.compressed_deltas.append(current_byte)
     
 
     def _pack_compressed_data(self) -> Dict:

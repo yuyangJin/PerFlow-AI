@@ -259,6 +259,7 @@ class CompressedTrace(BaseTrace):
                             event_dict["tid"] = tid
                             trace_events.append(event_dict)
 
+            # TODO: after SLP, x['ts'] is a dict(), need to handle it properly
             trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
             out = {"traceEvents": trace_events}
