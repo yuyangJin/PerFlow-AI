@@ -345,7 +345,7 @@ class RefNode(BaseNode):
 
     def segmented_linear_predictor_compress(self):
         """Compress this node using segmented linear predictor."""
-        self.ref.segmented_linear_predictor_compress()
+        return
 
     def to_dict(self) -> Dict:
         assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
