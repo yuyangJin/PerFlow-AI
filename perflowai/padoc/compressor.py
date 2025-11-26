@@ -9,9 +9,6 @@ and decompression methods.
 from __future__ import annotations
 from typing import List, Dict, Union, Optional, Tuple
 from abc import ABC, abstractmethod
-import numpy as np
-import math
-import struct
 from .trace import BaseTrace, Trace, CompressedTrace
 from .node import BaseNode, Node, TemplateNode, RefNode
 from .utils import logger
@@ -52,7 +49,7 @@ class TemplateCompressor(Compressor):
 
     def __init__(self):
         super().__init__()
-        self.templates: Dict[str, Union[TemplateNode, RefNode]] = {}
+        self.templates: Dict[str, TemplateNode] = {}
         self.next_template_id = 0
 
     def intra_compress(self, trace: BaseTrace, rank: str = "0") -> BaseTrace:
@@ -66,14 +63,17 @@ class TemplateCompressor(Compressor):
 
         logger.info("Intra compressing rank %s", rank)
 
-        for r, pid, tid, node in trace.iter_nodes(rank):
-            logger.info("Compressing pid %s tid %s", pid, tid)
+        for r, pid, tid, ph, node in trace.iter_nodes(rank):
+            logger.info("Compressing pid %s tid %s ph %s", pid, tid, ph)
 
-            compressed_ranks.setdefault(str(r), {}).setdefault(str(pid), {})
+            compressed_ranks.setdefault(str(r), {}).setdefault(str(pid), {}).setdefault(str(tid), {})
 
-            root = self._build_call_tree(node)
+            if ph == "X":
+                root = self._build_call_tree(node)
+            else:
+                root = self._divide_events(node)
             root = self._find_template_node(root)
-            compressed_ranks[str(r)][str(pid)][str(tid)] = root
+            compressed_ranks[str(r)][str(pid)][str(tid)][ph] = root
 
         logger.info("There are %d templates", len(self.templates))
 
@@ -92,7 +92,7 @@ class TemplateCompressor(Compressor):
         for e in events:
             while stack:
                 top_event = stack[-1].events[0]
-                if top_event.get_ts() + top_event.get_dur() <= e.get_ts():
+                if top_event.get_ts() + top_event.get_dur() <= e.get_ts() and e.get_dur() > 0:
                     stack.pop()
                 else:
                     break
@@ -106,6 +106,8 @@ class TemplateCompressor(Compressor):
 
             stack.append(new_node)
 
+        logger.info("Building %d call trees", len(roots))
+
         if len(roots) == 1:
             root = roots[0]
         else:
@@ -116,6 +118,12 @@ class TemplateCompressor(Compressor):
         root = self._flatten_tree(root)
 
         return root
+
+    def _divide_events(self, node: Node) -> Node:
+        new_node = Node()
+        for e in node.get_events():
+            new_node.add_child(Node(events=[e]))
+        return new_node
 
     def _group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
         children = node.get_children()
@@ -133,7 +141,8 @@ class TemplateCompressor(Compressor):
                 if used[j]:
                     continue
 
-                if children[i].is_same_node(children[j]):
+                debug_flag = False
+                if children[i].is_same_node(children[j], debug_flag):
                     current_group.append(children[j])
                     used[j] = True
 
@@ -147,7 +156,8 @@ class TemplateCompressor(Compressor):
 
     def _find_node_in_templates(self, node: Node) -> Optional[TemplateNode]:
         for template in self.templates.values():
-            if template.is_same_node(node):
+            debug_flag = False
+            if template.is_same_node(node, debug_flag):
                 return template
         return None
 

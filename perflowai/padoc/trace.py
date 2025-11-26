@@ -45,7 +45,8 @@ class BaseTrace(ABC):
 
     def __init__(self, metadata: Dict[str, Any] | None = None):
         self.metadata: Dict[str, Any] = metadata if metadata else {}
-        self.ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
+        # rank → pid → tid → ph -> Node
+        self.ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
 
     def get_metadata(self) -> Dict[str, Any]:
         """Return the trace metadata."""
@@ -63,21 +64,26 @@ class BaseTrace(ABC):
         """Return the list of tids in the specified rank and pid."""
         return list(self.ranks.get(rank, {}).get(pid, {}).keys())
 
-    def get_node(self, rank: str, pid: str, tid: str) -> Optional[BaseNode]:
-        """Return the node for the specified rank, pid, and tid."""
-        return self.ranks.get(rank, {}).get(pid, {}).get(tid)
+    def get_phs(self, rank: str, pid: str, tid: str) -> List[str]:
+        """Return the list of phases in the specified rank, pid, and tid."""
+        return list(self.ranks.get(rank, {}).get(pid, {}).get(tid, {}).keys())
 
-    def set_node(self, rank: str, pid: str, tid: str, node: BaseNode):
-        """Set the node for the specified rank, pid, and tid."""
-        self.ranks.setdefault(rank, {}).setdefault(pid, {})[tid] = node
+    def get_node(self, rank: str, pid: str, tid: str, ph: str) -> Optional[BaseNode]:
+        """Return the node for the specified rank, pid, tid and phase."""
+        return self.ranks.get(rank, {}).get(pid, {}).get(tid, {}).get(ph)
+
+    def set_node(self, rank: str, pid: str, tid: str, ph: str, node: BaseNode):
+        """Set the node for the specified rank, pid, tid and phase."""
+        self.ranks.setdefault(rank, {}).setdefault(pid, {}).setdefault(tid, {})[ph] = node
 
     def iter_nodes(self, rank: Optional[str] = None):
         """Iterate over all nodes in the trace, optionally filtering by rank."""
         rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
         for r, processes in rank_items:
-            for pid, tids in processes.items():
-                for tid, node in tids.items():
-                    yield r, pid, tid, node
+            for pid, threads in processes.items():
+                for tid, phases in threads.items():
+                    for ph, node in phases.items():
+                        yield r, pid, tid, ph, node
 
     @classmethod
     @abstractmethod
@@ -129,11 +135,13 @@ class Trace(BaseTrace):
         for e in events:
             pid = e.pop("pid", 0)
             tid = e.pop("tid", 0)
+            ph = e.pop("ph", "X")
             e.pop("rank", None)
 
             rank_layer = self.ranks.setdefault(rank, {})
             pid_layer = rank_layer.setdefault(str(pid), {})
-            node = pid_layer.setdefault(str(tid), Node())
+            tid_layer = pid_layer.setdefault(str(tid), {})
+            node = tid_layer.setdefault(str(ph), Node())
 
             node.add_events([Event(e)])
 
@@ -147,12 +155,14 @@ class Trace(BaseTrace):
 
             for r, processes in rank_items:
                 for pid, tids in processes.items():
-                    for tid, node in tids.items():
-                        for e in node.get_events():
-                            event_dict = e.to_dict().copy()
-                            event_dict["pid"] = pid
-                            event_dict["tid"] = tid
-                            trace_events.append(event_dict)
+                    for tid, phases in tids.items():
+                        for ph, node in phases.items():
+                            for e in node.get_events():
+                                event_dict = e.to_dict().copy()
+                                event_dict["pid"] = pid
+                                event_dict["tid"] = tid
+                                event_dict["ph"]  = ph
+                                trace_events.append(event_dict)
 
             trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
@@ -168,8 +178,10 @@ class Trace(BaseTrace):
                 out["ranks"][r] = {}
                 for pid, tids in processes.items():
                     out["ranks"][r][pid] = {}
-                    for tid, node in tids.items():
-                        out["ranks"][r][pid][tid] = node.to_dict()
+                    for tid, phases in tids.items():
+                        out["ranks"][r][pid][tid] = {}
+                        for ph, node in phases.items():
+                            out["ranks"][r][pid][tid][ph] = node.to_dict()
 
         ext = os.path.splitext(path)[1].lower()
 
@@ -218,7 +230,7 @@ class CompressedTrace(BaseTrace):
                 data: Dict[str, Any] = msgpack.load(f, strict_map_key=False)
 
         templates: Dict[str, TemplateNode] = {}
-        ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
+        ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
         metadata: Dict[str, Any] = {}
 
         assert "templates" in data, "Invalid trace format"
@@ -229,13 +241,15 @@ class CompressedTrace(BaseTrace):
             ranks[rank] = {}
             for pid, thread_dict in process_dict.items():
                 ranks[rank][pid] = {}
-                for tid, node_dict in thread_dict.items():
-                    if "ref_node_id" in node_dict:
-                        ranks[rank][pid][tid] = \
-                            RefNode.from_dict(node_dict, data["templates"], templates)
-                    else:
-                        ranks[rank][pid][tid] = \
-                            Node.from_dict(node_dict, data["templates"], templates)
+                for tid, phase_dict in thread_dict.items():
+                    ranks[rank][pid][tid] = {}
+                    for ph, node_dict in phase_dict.items():
+                        if "ref_node_id" in node_dict:
+                            ranks[rank][pid][tid][ph] = \
+                                RefNode.from_dict(node_dict, data["templates"], templates)
+                        else:
+                            ranks[rank][pid][tid][ph] = \
+                                Node.from_dict(node_dict, data["templates"], templates)
 
         metadata = data["metadata"]
 
@@ -252,14 +266,15 @@ class CompressedTrace(BaseTrace):
 
             for r, processes in rank_items:
                 for pid, tids in processes.items():
-                    for tid, node in tids.items():
-                        for e in node.get_all_events():
-                            event_dict = e.to_dict().copy()
-                            event_dict["pid"] = pid
-                            event_dict["tid"] = tid
-                            trace_events.append(event_dict)
+                    for tid, phases in tids.items():
+                        for ph, node in phases.items():
+                            for e in node.get_all_events():
+                                event_dict = e.to_dict().copy()
+                                event_dict["pid"] = pid
+                                event_dict["tid"] = tid
+                                event_dict["ph"]  = ph
+                                trace_events.append(event_dict)
 
-            # TODO: after SLP, x['ts'] is a dict(), need to handle it properly
             trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
             out = {"traceEvents": trace_events}
@@ -278,14 +293,16 @@ class CompressedTrace(BaseTrace):
                 out["ranks"][r] = {}
                 for pid, tids in processes.items():
                     out["ranks"][r][pid] = {}
-                    for tid, node in tids.items():
-                        out["ranks"][r][pid][tid] = node.to_dict()
+                    for tid, phases in tids.items():
+                        out["ranks"][r][pid][tid] = {}
+                        for ph, node in phases.items():
+                            out["ranks"][r][pid][tid][ph] = node.to_dict()
 
         ext = os.path.splitext(path)[1].lower()
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)

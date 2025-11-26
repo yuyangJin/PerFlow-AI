@@ -60,7 +60,7 @@ class BaseNode(ABC):
         return
 
     @abstractmethod
-    def is_same_node(self, other: BaseNode) -> bool:
+    def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         """Check if this node is the same as another node."""
         return False
 
@@ -122,26 +122,40 @@ class Node(BaseNode):
     def add_child(self, child: Union[Node, RefNode]):
         self.children.append(child)
 
-    def is_same_node(self, other: Union[Node, TemplateNode]) -> bool:
+    def is_same_node(self, other: Union[Node, TemplateNode, RefNode], debug: bool = False, indent = 0) -> bool:
         if isinstance(other, RefNode):
             return other.is_same_node(self)
 
+        ind = " " * indent
         if len(self.events) != len(other.get_events()):
+            if debug:
+                logger.debug("%s Node is_same_node: Different event count(%s): %d vs %d",
+                             ind, self.events[0].get_name(), len(self.events), len(other.get_events()))
+                for e in other.get_events():
+                    logger.debug("%s Node is_same_node: %s", ind, e.get_name())
             return False
 
         for i, event in enumerate(self.events):
-            if not event.is_same_event(other.get_events()[i]):
+            if not event.is_same_event(other.get_events()[i], debug):
+                if debug:
+                    logger.debug("%s Node is_same_node: Different event: %s vs %s",
+                                 ind, event, other.get_events()[i])
                 return False
 
         if len(self.children) != len(other.get_children()):
+            if debug:
+                logger.debug("%s Node is_same_node: Different child count: %d vs %d",
+                             ind, len(self.children), len(other.get_children()))
             return False
 
-        for i, event in enumerate(self.children):
-            if not event.is_same_node(other.get_children()[i]):
+        for i, child in enumerate(self.children):
+            if not child.is_same_node(other.get_children()[i], debug=debug, indent=indent+2):
+                if debug:
+                    logger.debug("%s Node is_same_node: Different child: %s vs %s",
+                                 ind, child, other.get_children()[i])
                 return False
 
         return True
-
 
     def to_dict(self) -> Dict:
         return {
@@ -181,7 +195,6 @@ class TemplateNode(BaseNode):
         self.children : List[Union[TemplateNode, RefNode]] = []
         self.node_count = sum(n.get_node_count() for n in nodes)
 
-        logger.debug("TemplateNode __init__: Merging %d nodes", len(nodes))
         event_count = len(nodes[0].events)
         for n in nodes[1:]:
             assert len(n.events) == event_count, \
@@ -204,7 +217,6 @@ class TemplateNode(BaseNode):
 
     def add_nodes(self, nodes: List[Union[Node, TemplateNode]]):
         """Add a list of nodes to this node."""
-        logger.debug("TemplateNode add_nodes: %s", [type(n) for n in nodes])
         self.node_count += sum(n.get_node_count() for n in nodes)
         event_count = len(self.events)
         for n in nodes:
@@ -257,22 +269,36 @@ class TemplateNode(BaseNode):
         # TODO: 这里需要做一些限制，比如不能直接添加到TemplateNode，只能通过merge_nodes
         pass
 
-    def is_same_node(self, other: BaseNode) -> bool:
+    def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         if isinstance(other, RefNode):
             return other.is_same_node(self)
 
+        ind = " " * indent
+
         if len(self.events) != len(other.get_events()):
+            if debug:
+                logger.debug("%s TemplateNode is_same_node: Different event count: %d vs %d",
+                             ind, len(self.events), len(other.get_events()))
             return False
 
         for i, event in enumerate(self.events):
-            if not event.is_same_event(other.get_events()[i]):
+            if not event.is_same_event(other.get_events()[i], debug):
+                if debug:
+                    logger.debug("TemplateNode is_same_node: Different event: %s vs %s",
+                                 event, other.get_events()[i])
                 return False
 
         if len(self.children) != len(other.get_children()):
+            if debug:
+                logger.debug("TemplateNode is_same_node: Different child count: %d vs %d",
+                             len(self.children), len(other.get_children()))
             return False
 
         for i, event in enumerate(self.children):
-            if not event.is_same_node(other.get_children()[i]):
+            if not event.is_same_node(other.get_children()[i], debug=debug):
+                if debug:
+                    logger.debug("TemplateNode is_same_node: Different child: %s vs %s",
+                                 event, other.get_children()[i])
                 return False
 
         return True
@@ -319,7 +345,7 @@ class RefNode(BaseNode):
         self.ref: TemplateNode = ref
         self.index: int = index
 
-    def is_same_node(self, other: BaseNode) -> bool:
+    def is_same_node(self, other: BaseNode, debug: bool = False) -> bool:
         # TODO:
         pass
 

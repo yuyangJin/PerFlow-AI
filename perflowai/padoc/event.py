@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
 from .slp import SegmentedLinearPredictorCompressor
+from .utils import logger
 
 class BaseEvent(ABC):
     """
@@ -54,7 +55,7 @@ class BaseEvent(ABC):
 
         return True
 
-    def is_same_event(self, other: BaseEvent) -> bool:
+    def is_same_event(self, other: BaseEvent, debug: bool = False) -> bool:
         """Check if the event is the same as another event."""
         if not isinstance(other, BaseEvent):
             return False
@@ -62,9 +63,11 @@ class BaseEvent(ABC):
         name1 = re.sub(r"\d+", "", self.get_name())
         name2 = re.sub(r"\d+", "", other.get_name())
         if name1!= name2:
+            if debug:
+                logger.debug(f"Name mismatch: {name1} vs {name2}")
             return False
 
-        ignore_keys = {"ts", "dur", "id", "args"}
+        ignore_keys = {"ts", "dur", "id", "args", "name_pattern"}
 
         for key, val in self.raw.items():
             if key in ignore_keys or key == "name":
@@ -72,6 +75,8 @@ class BaseEvent(ABC):
 
             other_val = other.to_dict().get(key, None)
             if val != other_val:
+                if debug:
+                    logger.debug(f"Value mismatch: {key} = {val} vs {key} = {other_val}")
                 return False
 
         args1 = self.raw.get("args", {})
@@ -79,6 +84,8 @@ class BaseEvent(ABC):
 
         # if not self.is_same_structure(args1, args2):
         if not set(args1.keys()) == set(args2.keys()):
+            if debug:
+                logger.debug(f"Args mismatch: {set(args1.keys())} vs {set(args2.keys())}")
             return False
 
         return True
@@ -135,8 +142,6 @@ class MergeEvent(BaseEvent):
 
         if events:
             self.add_events(events)
-        
-        self.has_compressed = False
 
     def get_name(self) -> str:
         return self.raw.get("name_pattern", "unknown")
@@ -282,16 +287,43 @@ class MergeEvent(BaseEvent):
             self._add_event(event)
 
     def segmented_linear_predictor_compress(self):
-        if self.has_compressed:
-            return
-
-        self.has_compressed = True
         """Compress the merged event using segmented linear predictor."""
-        slp = SegmentedLinearPredictorCompressor()
-        for key in ["ts", "dur", "id"]:
-            if key in self.raw:
-                val = self.raw.get(key, None)
-                self.raw[key] = slp.compress_timestamps(val)
+        # for key in ["ts", "dur", "id"]:
+        #     if key in self.raw:
+        #         val = self.raw.get(key, None)
+        #         self.raw[key] = SegmentedLinearPredictorCompressor.compress(val)
+
+        # if "name" in self.raw:
+        #    val = self.raw.get("name", None)
+        #    self.raw["name"] = [SegmentedLinearPredictorCompressor.compress(v) for v in val]
+
+        # for key in ["args", "ts", "dur", "name", "id"]:
+        #     if key in self.raw:
+        #         val = self.raw.get(key, None)
+        #         self.raw[key] = None
+        #         if key == "ts":
+        #             self.raw[key] = len(val)
+        # names = self.raw.get("name", [])
+        # result = SegmentedLinearPredictorCompressor.compress_names(names)
+        # if result is None:
+        #     if len(names[0]) > 0:
+        #         nums = []
+        #         for name in names:
+        #             nums.append(name[0])
+        #         self.raw["name"] = self._format_name(self.raw["name_pattern"], nums)
+        #     else:
+        #         self.raw["name"] = self.raw["name_pattern"]
+        # else:
+        #     self.raw["name"] = result
+
+        # args = self.raw.get("args", {})
+        # for key, val in args.items():
+        #     if isinstance(val, list):
+        #         logger.info(f"Compressing args {key}")
+        #         args[key] = SegmentedLinearPredictorCompressor.compress_ids(val)
+
+        # self.raw["args"] = args
+        return
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> MergeEvent:
