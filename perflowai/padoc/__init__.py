@@ -6,6 +6,7 @@ from .trace import BaseTrace, Trace, CompressedTrace
 from .compressor import Compressor, TemplateCompressor
 from .utils import logger
 from .slp import SegmentedLinearPredictorCompressor
+from .analysis import TraceAnalysis
 
 __all__ = [
     "Event",
@@ -24,6 +25,8 @@ __all__ = [
     "TemplateCompressor",
 
     "SegmentedLinearPredictorCompressor",
+
+    "TraceAnalysis",
 ]
 
 
