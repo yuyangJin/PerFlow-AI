@@ -16,7 +16,7 @@ using a unified API.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Union, Any, Optional
+from typing import List, Dict, Union, Any, Optional, Generator
 from .event import BaseEvent, Event, MergeEvent
 from .utils import logger
 
@@ -60,6 +60,11 @@ class BaseNode(ABC):
         return
 
     @abstractmethod
+    def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
+        """A generator that yields all events (must be Event) in this node and its children."""
+        return
+
+    @abstractmethod
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         """Check if this node is the same as another node."""
         return False
@@ -80,8 +85,6 @@ class BaseNode(ABC):
                   templates: Dict[str, TemplateNode] | None = None):
         """Deserialize a dictionary to a node."""
         return None
-
-    # TODO: 这里需要一个access接口
 
 class Node(BaseNode):
     """A concrete tree node that stores actual Event objects.
@@ -122,7 +125,15 @@ class Node(BaseNode):
     def add_child(self, child: Union[Node, RefNode]):
         self.children.append(child)
 
-    def is_same_node(self, other: Union[Node, TemplateNode, RefNode], debug: bool = False, indent = 0) -> bool:
+    def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
+        for event in self.events:
+            yield event
+
+        for child in self.children:
+            yield from child.events_visitor(index)
+
+    def is_same_node(self, other: Union[Node, TemplateNode, RefNode],
+                     debug: bool = False, indent = 0) -> bool:
         if isinstance(other, RefNode):
             return other.is_same_node(self)
 
@@ -269,6 +280,13 @@ class TemplateNode(BaseNode):
         # TODO: 这里需要做一些限制，比如不能直接添加到TemplateNode，只能通过merge_nodes
         pass
 
+    def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
+        for e in self.events:
+            yield e.get_event_by_index(index)
+
+        for child in self.children:
+            yield from child.events_visitor(index)
+
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         if isinstance(other, RefNode):
             return other.is_same_node(self)
@@ -365,6 +383,9 @@ class RefNode(BaseNode):
 
     def add_child(self, child: BaseNode):
         pass
+
+    def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
+        return self.ref.events_visitor(self.index + index)
 
     def get_node_count(self) -> int:
         return self.ref.get_node_count()

@@ -32,13 +32,21 @@ class BaseEvent(ABC):
         """Get the name of the event."""
         return "unknown"
 
-    def get_ts(self) -> float:
+    def get_ts(self) -> int:
         """Get the timestamp of the event."""
-        return self.raw.get("ts", 0.0)
+        return self.raw.get("ts", 0)
 
-    def get_dur(self) -> float:
+    def get_dur(self) -> int:
         """Get the duration of the event."""
-        return self.raw.get("dur", 0.0)
+        return self.raw.get("dur", 0)
+
+    def __getitem__(self, key: str) -> Any:
+        """
+        Allows dictionary-like access to the internal raw data (self.raw).
+        
+        Example: event_instance['pid']
+        """
+        return self.raw[key]
 
     def is_same_structure(self, a: Any, b: Any) -> bool:
         """Check if two values are the same structure."""
