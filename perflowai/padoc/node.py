@@ -60,6 +60,11 @@ class BaseNode(ABC):
         return
 
     @abstractmethod
+    def get_first_event_name(self):
+        """Get the name of the first event in this node."""
+        return
+
+    @abstractmethod
     def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
         """A generator that yields all events (must be Event) in this node and its children."""
         return
@@ -125,6 +130,14 @@ class Node(BaseNode):
     def add_child(self, child: Union[Node, RefNode]):
         self.children.append(child)
 
+    def get_first_event_name(self):
+        if len(self.events) > 0:
+            return self.events[0].get_name()
+        if len(self.children) > 0:
+            return self.children[0].get_first_event_name()
+
+        return "none"
+
     def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
         for event in self.events:
             yield event
@@ -141,7 +154,8 @@ class Node(BaseNode):
         if len(self.events) != len(other.get_events()):
             if debug:
                 logger.debug("%s Node is_same_node: Different event count(%s): %d vs %d",
-                             ind, self.events[0].get_name(), len(self.events), len(other.get_events()))
+                             ind, self.events[0].get_name(),
+                             len(self.events), len(other.get_events()))
                 for e in other.get_events():
                     logger.debug("%s Node is_same_node: %s", ind, e.get_name())
             return False
@@ -280,6 +294,14 @@ class TemplateNode(BaseNode):
         # TODO: 这里需要做一些限制，比如不能直接添加到TemplateNode，只能通过merge_nodes
         pass
 
+    def get_first_event_name(self):
+        if len(self.events) > 0:
+            return self.events[0].get_name()
+        if len(self.children) > 0:
+            return self.children[0].get_first_event_name()
+
+        return "none"
+
     def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
         for e in self.events:
             yield e.get_event_by_index(index)
@@ -383,6 +405,9 @@ class RefNode(BaseNode):
 
     def add_child(self, child: BaseNode):
         pass
+
+    def get_first_event_name(self):
+        return self.ref.get_first_event_name()
 
     def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
         return self.ref.events_visitor(self.index + index)

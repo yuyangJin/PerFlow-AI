@@ -9,6 +9,8 @@ and decompression methods.
 from __future__ import annotations
 from typing import List, Dict, Union, Optional, Tuple
 from abc import ABC, abstractmethod
+import time
+import re
 from .trace import BaseTrace, Trace, CompressedTrace
 from .node import BaseNode, Node, TemplateNode, RefNode
 from .utils import logger
@@ -51,12 +53,25 @@ class TemplateCompressor(Compressor):
         super().__init__()
         self.templates: Dict[str, TemplateNode] = {}
         self.next_template_id = 0
+        self.name2id: Dict[str, List[str]] = {}
+
+        self.build_tree_time = 0
+        self.compress_tree_time = 0
+        self.find_template_time = 0
+        self.check_same_node_time = 0
 
     def intra_compress(self, trace: BaseTrace, rank: str = "0") -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
+        self.build_tree_time = 0
+        self.compress_tree_time = 0
+        self.find_template_time = 0
+        self.check_same_node_time = 0
+
+        strat_time = time.time()
 
         self.templates = {}
         self.next_template_id = 0
+        self.name2id = {}
 
         # rank -> pid -> tid -> node
         compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
@@ -66,16 +81,26 @@ class TemplateCompressor(Compressor):
         for r, pid, tid, ph, node in trace.iter_nodes(rank):
             logger.info("Compressing pid %s tid %s ph %s", pid, tid, ph)
 
-            compressed_ranks.setdefault(str(r), {}).setdefault(str(pid), {}).setdefault(str(tid), {})
+            compressed_ranks.setdefault(
+                str(r), {}).setdefault(str(pid), {}).setdefault(str(tid), {})
 
             if ph == "X":
+                build_start_time = time.time()
                 root = self._build_call_tree(node)
+                self.build_tree_time += time.time() - build_start_time
             else:
                 root = self._divide_events(node)
-            root = self._find_template_node(root)
+            conpress_start_time = time.time()
+            root = self._compress_node(root)
+            self.compress_tree_time += time.time() - conpress_start_time
             compressed_ranks[str(r)][str(pid)][str(tid)][ph] = root
 
-        logger.info("There are %d templates", len(self.templates))
+        compress_time = time.time() - strat_time
+        logger.info("There are %d templates, cost %.3f s", len(self.templates), compress_time)
+        logger.info("Build tree cost %.3f s, find template cost %.3f s, " \
+            "compress tree cost %.3f s, check same node cost %.3f s", \
+            self.build_tree_time, self.find_template_time, \
+            self.compress_tree_time, self.check_same_node_time)
 
         return CompressedTrace(self.templates, compressed_ranks, trace.get_metadata())
 
@@ -142,7 +167,10 @@ class TemplateCompressor(Compressor):
                     continue
 
                 debug_flag = False
-                if children[i].is_same_node(children[j], debug_flag):
+                check_start_time = time.time()
+                is_same = children[i].is_same_node(children[j], debug_flag)
+                self.check_same_node_time += time.time() - check_start_time
+                if is_same:
                     current_group.append(children[j])
                     used[j] = True
 
@@ -154,18 +182,29 @@ class TemplateCompressor(Compressor):
 
         return groups, unused
 
-    def _find_node_in_templates(self, node: Node) -> Optional[TemplateNode]:
-        for template in self.templates.values():
-            debug_flag = False
-            if template.is_same_node(node, debug_flag):
-                return template
+    def _find_node_in_templates(self, node: Node, ids: List[str]) -> Optional[TemplateNode]:
+        for k in ids:
+            if k in self.templates:
+                template = self.templates[k]
+                debug_flag = False
+                check_start_time = time.time()
+                is_same = template.is_same_node(node, debug_flag)
+                self.check_same_node_time += time.time() - check_start_time
+                if is_same:
+                    return template
+
         return None
 
-    def _find_template_node(self, node: Node) -> Node:
+    def _compress_node(self, node: Node) -> Node:
         # there is no ref node
 
         if not hasattr(node, "id"): # only root template node has id
-            tem = self._find_node_in_templates(node)
+            find_start_time = time.time()
+            name = node.get_first_event_name()
+            pattern = re.sub(r"\d+", "0", name)
+            ids = self.name2id.get(pattern, [])
+            tem = self._find_node_in_templates(node, ids)
+            self.find_template_time += time.time() - find_start_time
             if tem is not None:
                 index = tem.get_node_count()
                 tem.add_nodes([node])
@@ -175,7 +214,12 @@ class TemplateCompressor(Compressor):
         groups, _ = self._group_same_children(node)
         node_to_ref_node: Dict[Node, RefNode] = {}
         for group in groups:
-            tem = self._find_node_in_templates(group[0])
+            find_start_time = time.time()
+            name = group[0].get_first_event_name()
+            pattern = re.sub(r"\d+", "0", name)
+            ids = self.name2id.get(pattern, [])
+            tem = self._find_node_in_templates(group[0], ids)
+            self.find_template_time += time.time() - find_start_time
             if tem is not None:
                 index = tem.get_node_count()
                 tem.add_nodes(group)
@@ -186,6 +230,8 @@ class TemplateCompressor(Compressor):
             else:
                 tem = TemplateNode(group)
                 tem.id = str(self.next_template_id)
+                name = tem.get_first_event_name()
+                self.name2id.setdefault(name, []).append(tem.id)
                 self.templates[str(self.next_template_id)] = tem
                 self.next_template_id += 1
                 index = 0
@@ -194,14 +240,14 @@ class TemplateCompressor(Compressor):
                     node_to_ref_node[n] = RefNode(tem, index)
                     index = next_index
 
-                self._find_template_node(tem)
+                self._compress_node(tem)
 
         new_children = []
         for child in node.get_children():
             if child in node_to_ref_node:
                 new_children.append(node_to_ref_node[child])
             else:
-                new_children.append(self._find_template_node(child))
+                new_children.append(self._compress_node(child))
 
         node.children = new_children
 
