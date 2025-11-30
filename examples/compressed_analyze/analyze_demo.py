@@ -109,8 +109,21 @@ def analyze_demo(input_file: str, compressed_file: str = None):
     # get the temporal_breakdown
     temporal_breakdown = analyzer.get_temporal_breakdown()
     hta_temporal_breakdown = hta_analyzer.get_temporal_breakdown(False)
-    print(f"  Temporal breakdown: {temporal_breakdown}")
+    print("  Temporal breakdown:")
+    print(temporal_breakdown)
+    print("  HTA Temporal breakdown:")
+    print(hta_temporal_breakdown)
     check_exact_match(temporal_breakdown, hta_temporal_breakdown, "Temporal breakdown")
+
+    # get the comm_comp_overlap
+    comm_comp_overlap = analyzer.get_comm_comp_overlap()
+    hta_comm_comp_overlap = hta_analyzer.get_comm_comp_overlap(False)
+
+    print("  Communication-computation overlap:")
+    print(comm_comp_overlap)
+    print("  HTA Communication-computation overlap:")
+    print(hta_comm_comp_overlap)
+    check_exact_match(comm_comp_overlap, hta_comm_comp_overlap, "Communication-computation overlap")
 
 
 def main():

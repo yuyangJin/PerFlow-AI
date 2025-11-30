@@ -1,8 +1,12 @@
+"""TODO
+"""
+
 from collections import defaultdict
 from typing import List, Optional, Dict, Any
 from enum import auto, Flag
-from .trace import BaseTrace
-from .hta.breakdown_analysis import BreakdownAnalysis
+from perflowai.padoc.trace import BaseTrace
+from perflowai.padoc.hta.breakdown_analysis import BreakdownAnalysis
+from perflowai.padoc.hta.communication_analysis import CommunicationAnalysis
 
 class TimeSeriesTypes(Flag):
     QUEUE_LENGTH = auto()
