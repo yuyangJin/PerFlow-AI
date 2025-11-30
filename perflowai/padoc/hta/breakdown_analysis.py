@@ -3,15 +3,14 @@
 # LICENSE file in the root directory of this source tree.
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from ..trace import BaseTrace, Trace, CompressedTrace
-from ..visitor import StreamMergedEventsIterator
-from .types import is_compute_kernel
+
+from perflowai.padoc.trace import BaseTrace
+from perflowai.padoc.visitor import StreamMergedEventsIterator
+from perflowai.padoc.hta.types import is_compute_kernel
 
 
 # This configures the threshold under which we consider gaps between
@@ -188,7 +187,7 @@ class BreakdownAnalysis:
         pass
 
     @classmethod
-    def get_temporal_breakdown(cls, t: Union[Trace, CompressedTrace],
+    def get_temporal_breakdown(cls, t: BaseTrace,
                                visualize: bool = True) -> pd.DataFrame:
         """
         Temporal breakdown implementation. See `get_temporal_breakdown` 
@@ -207,7 +206,6 @@ class BreakdownAnalysis:
 
             last_kernel_end_time = -1
             last_compute_kernel_end_time = -1
-            last_compute_kernel_start_time = -1
 
             for e, _ in visitor:
                 ts = e["ts"]
@@ -230,17 +228,15 @@ class BreakdownAnalysis:
                 if is_compute_kernel(e["name"]):
                     if last_compute_kernel_end_time == -1:
                         last_compute_kernel_end_time = ts + dur
-                        last_compute_kernel_start_time = ts
+                        compute_time += dur
                     else:
                         if ts > last_compute_kernel_end_time:
-                            compute_time += \
-                                last_compute_kernel_end_time - last_compute_kernel_start_time
-                            last_compute_kernel_start_time = ts
                             last_compute_kernel_end_time = ts + dur
+                            compute_time += dur
                         else:
-                            last_compute_kernel_end_time = max(
-                                last_compute_kernel_end_time, ts + dur
-                            )
+                            if ts + dur > last_compute_kernel_end_time:
+                                compute_time += ts + dur - last_compute_kernel_end_time
+                                last_compute_kernel_end_time = ts + dur
 
             total_time = end_time - start_time
             results["kernel_time(us)"].append(float(total_time))
