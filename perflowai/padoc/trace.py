@@ -136,7 +136,14 @@ class Trace(BaseTrace):
             pid = e.pop("pid", 0)
             tid = e.pop("tid", 0)
             ph = e.pop("ph", "X")
-            e.pop("rank", None)
+            args = e.get("args", {})
+            stream_id = args.get("stream", None)
+            if stream_id is not None:
+                tid = f"stream {stream_id}"
+            else:
+                category = e.get("cat", "")
+                if category == "gpu_user_annotation":
+                    tid = f"stream {tid}"
 
             rank_layer = self.ranks.setdefault(rank, {})
             pid_layer = rank_layer.setdefault(str(pid), {})
@@ -160,7 +167,10 @@ class Trace(BaseTrace):
                             for e in node.get_events():
                                 event_dict = e.to_dict().copy()
                                 event_dict["pid"] = pid
-                                event_dict["tid"] = tid
+                                if tid.startswith("stream "):
+                                    event_dict["tid"] = tid.split(" ")[1]
+                                else:
+                                    event_dict["tid"] = tid
                                 event_dict["ph"]  = ph
                                 trace_events.append(event_dict)
 
@@ -187,7 +197,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -271,7 +281,10 @@ class CompressedTrace(BaseTrace):
                             for e in node.get_all_events():
                                 event_dict = e.to_dict().copy()
                                 event_dict["pid"] = pid
-                                event_dict["tid"] = tid
+                                if tid.startswith("stream "):  
+                                    event_dict["tid"] = tid.split(" ")[1]
+                                else:
+                                    event_dict["tid"] = tid
                                 event_dict["ph"]  = ph
                                 trace_events.append(event_dict)
 

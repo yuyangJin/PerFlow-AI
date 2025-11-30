@@ -198,9 +198,9 @@ class BreakdownAnalysis:
         for rank in t.get_ranks():
             results["rank"].append(rank)
             visitor = StreamMergedEventsIterator(t, rank)
-            total_time = 0
-            idle_time = 0
-            compute_time = 0
+            total_time = 0.0
+            idle_time = 0.0
+            compute_time = 0.0
 
             start_time = -1
             end_time = 0
@@ -209,9 +209,12 @@ class BreakdownAnalysis:
             last_compute_kernel_end_time = -1
             last_compute_kernel_start_time = -1
 
-            for e in visitor:
+            for e, _ in visitor:
                 ts = e["ts"]
                 dur = e["dur"]
+                cat = e["cat"]
+                if cat == "gpu_user_annotation":
+                    continue
                 if start_time == -1:
                     start_time = ts
                 end_time = max(end_time, ts + dur)
@@ -240,7 +243,7 @@ class BreakdownAnalysis:
                             )
 
             total_time = end_time - start_time
-            results["kernel_time(us)"].append(total_time)
+            results["kernel_time(us)"].append(float(total_time))
             results["idle_time(us)"].append(idle_time)
             results["compute_time(us)"].append(compute_time)
             results["non_compute_time(us)"].append(total_time - idle_time - compute_time)
