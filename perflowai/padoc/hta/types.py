@@ -1,9 +1,10 @@
+"""TODO
+"""
+
 import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Union
-
-import pandas as pd
 
 
 class DeviceType(Enum):
@@ -17,7 +18,8 @@ class DeviceType(Enum):
 #     """Infer the device type based on trace data.
 
 #     Args:
-#         df (pd.DataFrame): A DataFrame slice consisting of trace events on a single thread or stream.
+#         df (pd.DataFrame): A DataFrame slice consisting of trace events on a 
+#               single thread or stream.
 
 #     Returns:
 #         DeviceType: the type of the device on which the trace events are collect.
@@ -51,9 +53,11 @@ MEMCPY_TYPE_TO_STR: Dict[MemcpyType, str] = {
     MemcpyType.UNKNOWN: "memcpy_type_unknown",
 }
 
-# TODO Move these to a common constants file that can provide patterns and platform constants
-
-
+class KernelType(Enum):
+    COMMUNICATION = 0
+    MEMORY = 1
+    COMPUTATION = 2
+    OTHER = 3
 @dataclass
 class GroupingPattern:
     pattern: re.Pattern[str]
