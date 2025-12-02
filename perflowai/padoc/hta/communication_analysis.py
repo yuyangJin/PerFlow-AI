@@ -11,6 +11,7 @@ import plotly.express as px
 from perflowai.padoc.trace import BaseTrace
 from perflowai.padoc.visitor import StreamMergedEventsIterator
 from perflowai.padoc.hta.types import is_compute_kernel, is_comm_kernel
+from perflowai.padoc.hta.analysis_helper import AnalysisHelper
 
 
 class CommunicationAnalysis:
@@ -33,72 +34,63 @@ class CommunicationAnalysis:
             visitor = StreamMergedEventsIterator(t, rank)
 
             start_time = -1
-            end_time = -1
-            last_compute_start_time = -1
-            last_compute_end_time = -1
-            last_comm_start_time = -1
-            last_comm_end_time = -1
-            last_compute_comm_overlap_end_time = -1
-            comp_comm_overlap_duration = 0.0
+            end_time = 0
             comm_time = 0.0
-
-            def _add_duration(s1, e1, s2, e2):
-                nonlocal last_compute_comm_overlap_end_time, comp_comm_overlap_duration
-                if s1 <= s2 <= e1:
-                    if s2 >= last_compute_comm_overlap_end_time:
-                        last_compute_comm_overlap_end_time = min(e1, e2)
-                        comp_comm_overlap_duration += last_compute_comm_overlap_end_time - s2
-                    else:
-                        new_end_time = min(e1, e2)
-                        if new_end_time > last_compute_comm_overlap_end_time:
-                            comp_comm_overlap_duration += \
-                                new_end_time - last_compute_comm_overlap_end_time
-                            last_compute_comm_overlap_end_time = new_end_time
-                if s2 <= s1 <= e2:
-                    if s1 >= last_compute_comm_overlap_end_time:
-                        last_compute_comm_overlap_end_time = min(e1, e2)
-                        comp_comm_overlap_duration += last_compute_comm_overlap_end_time - s1
-                    else:
-                        new_end_time = min(e1, e2)
-                        if new_end_time > last_compute_comm_overlap_end_time:
-                            comp_comm_overlap_duration += \
-                                new_end_time - last_compute_comm_overlap_end_time
-                            last_compute_comm_overlap_end_time = new_end_time
-
+            overlap_tracker = (0.0, -1.0)
+            comp_window = (-1.0, -1.0)
+            comm_window = (-1.0, -1.0)
 
             for e, _ in visitor:
                 if e["cat"] == "gpu_user_annotation":
                     continue
+
                 ts = e["ts"]
                 dur = e["dur"]
+
                 if start_time == -1:
                     start_time = ts
                 end_time = max(end_time, ts + dur)
 
                 if is_compute_kernel(e["name"]):
-                    if ts > last_compute_end_time:
-                        last_compute_start_time = ts
-                        last_compute_end_time = ts + dur
-                    else:
-                        last_compute_end_time = max(last_compute_end_time, ts + dur)
-                    _add_duration(last_compute_start_time, last_compute_end_time, \
-                                  last_comm_start_time, last_comm_end_time)
+                    new_start, new_end, _ = AnalysisHelper.update_window(
+                        comp_window[0],
+                        comp_window[1],
+                        ts,
+                        dur
+                    )
+                    comp_window = (new_start, new_end)
+
+                    overlap_tracker = AnalysisHelper.add_overlap_duration(
+                        overlap_tracker[0],
+                        overlap_tracker[1],
+                        comp_window[0],
+                        comp_window[1],
+                        comm_window[0],
+                        comm_window[1],
+                    )
                 elif is_comm_kernel(e["name"]):
-                    if ts > last_comm_end_time:
-                        last_comm_start_time = ts
-                        last_comm_end_time = ts + dur
-                        comm_time += dur
-                    else:
-                        if ts + dur > last_comm_end_time:
-                            comm_time += ts + dur - last_comm_end_time
-                            last_comm_end_time = ts + dur
-                    _add_duration(last_compute_start_time, last_compute_end_time, \
-                                  last_comm_start_time, last_comm_end_time)
+                    new_start, new_end, added_duration = AnalysisHelper.update_window(
+                        comm_window[0],
+                        comm_window[1],
+                        ts,
+                        dur
+                    )
+                    comm_window = (new_start, new_end)
+                    comm_time += added_duration
+
+                    overlap_tracker = AnalysisHelper.add_overlap_duration(
+                        overlap_tracker[0],
+                        overlap_tracker[1],
+                        comp_window[0],
+                        comp_window[1],
+                        comm_window[0],
+                        comm_window[1],
+                    )
                 else:
                     continue
 
             result["comp_comm_overlap_ratio"].append(
-                comp_comm_overlap_duration / comm_time
+                overlap_tracker[0] / comm_time
             )
 
         result_df = pd.DataFrame(result)
