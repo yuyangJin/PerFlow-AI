@@ -385,6 +385,11 @@ class RefNode(BaseNode):
         self.ref: TemplateNode = ref
         self.index: int = index
 
+    def update_template(self, template: TemplateNode, index: int):
+        """Update the reference to a new template and index."""
+        self.ref = template
+        self.index += index
+
     def is_same_node(self, other: BaseNode, debug: bool = False) -> bool:
         # TODO:
         pass

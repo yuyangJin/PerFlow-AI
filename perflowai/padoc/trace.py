@@ -25,9 +25,12 @@ import json
 from typing import Any, Dict, List, Optional, Union
 from abc import ABC, abstractmethod
 import os
+from collections import defaultdict
 import msgpack
-from .event import Event
-from .node import BaseNode, Node, TemplateNode, RefNode
+
+from perflowai.padoc.utils import logger
+from perflowai.padoc.event import Event
+from perflowai.padoc.node import BaseNode, Node, TemplateNode, RefNode
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -43,8 +46,8 @@ class BaseTrace(ABC):
     of rank → pid → tid → Node.
     """
 
-    def __init__(self, metadata: Dict[str, Any] | None = None):
-        self.metadata: Dict[str, Any] = metadata if metadata else {}
+    def __init__(self, metadata: Dict[str, Dict[str, Any]] | None = None):
+        self.metadata: Dict[str, Dict[str, Any]] = metadata if metadata else {}
         # rank → pid → tid → ph -> Node
         self.ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
 
@@ -87,7 +90,7 @@ class BaseTrace(ABC):
 
     @classmethod
     @abstractmethod
-    def from_json(cls, path: str) -> BaseTrace:
+    def from_file(cls, path: str) -> BaseTrace:
         """Create a trace from a JSON file."""
         return None
 
@@ -109,22 +112,57 @@ class Trace(BaseTrace):
     - Serializing to JSON/msgpack in both raw and structured forms
     """
 
-    def __init__(self, events: List[Dict[str, Any]] | None = None,
-                 metadata: Dict[str, Any] | None = None):
+    def __init__(self, events: Dict[str, List[Dict[str, Any]]] | None = None,
+                 metadata: Dict[str, Dict[str, Any]] | None = None):
         super().__init__(metadata)
 
         if events:
-            self.add_events(events)
+            for rank, events in events.items():
+                self.add_events(events, rank)
 
     @classmethod
-    def from_json(cls, path: str) -> Trace:
-        with open(path, 'r', encoding="utf-8") as f:
-            data: Dict[str, Any] = json.load(f)
-        events: List[Dict[str, Any]] = data.get("traceEvents", [])
-        metadata: Dict[str, Any] = {k: v for k, v in data.items() if k != "traceEvents"}
-        return cls(events, metadata)
+    def from_file(cls, path: str) -> 'Trace':
+        """Load trace from a single JSON/msgpack file."""
+        rank, events, metadata = cls._load_single_file_data(path)
 
-    def add_events(self, events: List[Dict[str, Any]], rank: str = "0"):
+        return cls({rank: events}, {rank: metadata})
+
+    @classmethod
+    def from_dir(cls, path: str) -> 'Trace':
+        """Load a trace from a directory of JSON/msgpack files."""
+        all_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        all_metadata: Dict[str, Dict[str, Any]] = defaultdict(dict)
+
+        for file in os.listdir(path):
+            file_path = os.path.join(path, file)
+            rank, events_list, metadata_dict = cls._load_single_file_data(file_path)
+            all_events[rank].extend(events_list)
+            all_metadata[rank].update(metadata_dict)
+
+        return cls(dict(all_events), dict(all_metadata))
+
+    @staticmethod
+    def _load_single_file_data(path: str) -> Dict[str, Any]:
+        """Load data from a single JSON or msgpack file."""
+        data: Dict[str, Any] = {}
+        if path.endswith(".json"):
+            with open(path, 'r', encoding="utf-8") as f:
+                data = json.load(f)
+        elif path.endswith(".bin"):
+            with open(path, 'rb') as f:
+                data = msgpack.load(f, strict_map_key=False)
+        else:
+            logger.warning("Unsupported trace file format: %s", path)
+
+        rank = data.get("distributedInfo", {}).get("rank", "0")
+        events: List[Dict[str, Any]] = data.get("traceEvents", [])
+        logger.info("Loaded %d events from %s", len(events), path)
+        metadata: Dict[str, Any] = \
+            {k: v for k, v in data.items() if k != "traceEvents"}
+
+        return str(rank), events, metadata
+
+    def add_events(self, events: List[Dict[str, Any]], rank: str):
         """Add events to the trace."""
         if not events:
             return
@@ -152,8 +190,10 @@ class Trace(BaseTrace):
 
             node.add_events([Event(e)])
 
-    def write_file(self, path: str, rank: str = "0", origin: bool = True):
+    def write_file(self, path: str, rank: str = "", origin: bool = True):
         out = {}
+        if rank == "":
+            rank = self.get_ranks()[0]
 
         if origin:
             trace_events = []
@@ -177,10 +217,10 @@ class Trace(BaseTrace):
             trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
             out = {"traceEvents": trace_events}
-            out.update(self.metadata)
+            out.update(self.metadata[rank])
 
         else:
-            out["metadata"] = self.metadata
+            out["metadata"] = self.metadata[rank]
             out["ranks"] = {}
 
             rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
@@ -201,6 +241,29 @@ class Trace(BaseTrace):
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
+
+    def write_dir(self, path: str, file_type: str, origin: bool = True):
+        """Write the trace to a directory of JSON/msgpack files.
+
+        Args:
+            - path: directory path to write to
+            - type: file format to write, now support "json" and "bin"(msgpack)
+            - origin: whether to write the original trace format or the compressed format
+        """
+
+        if len(self.ranks) <= 1:
+            logger.warning("Trace contains only one rank, writing to single file.")
+
+        if file_type not in ["json", "msgpack"]:
+            logger.warning("Unsupported trace file format: %s, writing as JSON.", file_type)
+            file_type = "json"
+
+        # Make sure the directory exists
+        os.makedirs(path, exist_ok=True)
+
+        for rank in self.ranks:
+            file_path = os.path.join(path, f"rank{rank}.{file_type}")
+            self.write_file(file_path, rank, origin)
 
 
 class CompressedTrace(BaseTrace):
@@ -231,7 +294,7 @@ class CompressedTrace(BaseTrace):
             node.segmented_linear_predictor_compress()
 
     @classmethod
-    def from_json(cls, path: str) -> CompressedTrace:
+    def from_file(cls, path: str) -> CompressedTrace:
         if path.endswith(".json"):
             with open(path, 'r', encoding="utf-8") as f:
                 data: Dict[str, Any] = json.load(f)
@@ -265,8 +328,10 @@ class CompressedTrace(BaseTrace):
 
         return cls(templates, ranks, metadata)
 
-    def write_file(self, path: str, rank: str = "0", origin: bool = False):
+    def write_file(self, path: str, rank: str = "", origin: bool = False):
         out = {}
+        if rank == "":
+            rank = self.get_ranks()[0]
 
         if origin:
             out.update(self.metadata)
@@ -291,7 +356,7 @@ class CompressedTrace(BaseTrace):
             trace_events = sorted(trace_events, key=lambda x: x["ts"])
 
             out = {"traceEvents": trace_events}
-            out.update(self.metadata)
+            out.update(self.metadata[rank])
 
         else:
             out["metadata"] = self.metadata

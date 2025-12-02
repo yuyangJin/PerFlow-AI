@@ -52,6 +52,7 @@ class TemplateCompressor(Compressor):
     def __init__(self):
         super().__init__()
         self.templates: Dict[str, TemplateNode] = {}
+        self.templates_refs: Dict[str, List[RefNode]] = {}
         self.next_template_id = 0
         self.name2id: Dict[str, List[str]] = {}
 
@@ -60,7 +61,7 @@ class TemplateCompressor(Compressor):
         self.find_template_time = 0
         self.check_same_node_time = 0
 
-    def intra_compress(self, trace: BaseTrace, rank: str = "0") -> BaseTrace:
+    def _compress_rank(self, trace: BaseTrace, rank: str) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
         self.build_tree_time = 0
         self.compress_tree_time = 0
@@ -102,11 +103,62 @@ class TemplateCompressor(Compressor):
             self.build_tree_time, self.find_template_time, \
             self.compress_tree_time, self.check_same_node_time)
 
+        return compressed_ranks
+
+    def intra_compress(self, trace: BaseTrace, rank: str = "") -> BaseTrace:
+
+        if rank == "":
+            rank = trace.get_ranks()[0]
+        compressed_ranks = self._compress_rank(trace, rank)
+
         return CompressedTrace(self.templates, compressed_ranks, trace.get_metadata())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
-        raise NotImplementedError
+
+        self.templates = {}
+        final_templates: Dict[str, TemplateNode] = {}
+        all_name2id: Dict[str, List[str]] = {}
+        all_compressed_ranks: Dict[str, Dict[str, Union[Node, RefNode]]] = {}
+
+        for rank in trace.get_ranks():
+            compressed_ranks = self._compress_rank(trace, rank)
+            all_compressed_ranks.update(compressed_ranks)
+            final_templates, all_name2id = self._merge_templates(final_templates, all_name2id)
+
+        return CompressedTrace(final_templates, all_compressed_ranks, trace.get_metadata())
+
+    def _merge_templates(self, all_templates: Dict[str, TemplateNode],
+                        all_name2id: Dict[str, List[str]]):
+
+        if all_templates == {}:
+
+            all_templates = self.templates
+
+            all_name2id = self.name2id
+
+            return all_templates, all_name2id
+
+        for v in self.templates.values():
+            name = v.get_first_event_name()
+            ids = all_name2id.get(name, [])
+            found = False
+            for i in ids:
+                if all_templates[i].is_same_node(v):
+                    index = all_templates[i].get_node_count()
+                    for ref_node in self.templates_refs[i]:
+                        ref_node.update_template(all_templates[i], index)
+                    all_templates[i].add_nodes([v])
+                    found = True
+                    break
+
+            if not found:
+                next_id = str(len(all_templates))
+                all_templates[next_id] = v
+                all_templates[next_id].id = next_id
+                all_name2id.setdefault(name, []).append(next_id)
+
+        return all_templates, all_name2id
 
     def _build_call_tree(self, node: Node) -> Node:
         events = sorted(node.events, key=lambda e: e.get_ts())
@@ -209,7 +261,10 @@ class TemplateCompressor(Compressor):
                 index = tem.get_node_count()
                 tem.add_nodes([node])
 
-                return RefNode(tem, index)
+                ref_node = RefNode(tem, index)
+                self.templates_refs.setdefault(tem.id, []).append(ref_node)
+
+                return ref_node
 
         groups, _ = self._group_same_children(node)
         node_to_ref_node: Dict[Node, RefNode] = {}
@@ -225,7 +280,9 @@ class TemplateCompressor(Compressor):
                 tem.add_nodes(group)
                 for n in group:
                     next_index = index + n.get_node_count()
-                    node_to_ref_node[n] = RefNode(tem, index)
+                    ref_node = RefNode(tem, index)
+                    self.templates_refs.setdefault(tem.id, []).append(ref_node)
+                    node_to_ref_node[n] = ref_node
                     index = next_index
             else:
                 tem = TemplateNode(group)
@@ -237,7 +294,9 @@ class TemplateCompressor(Compressor):
                 index = 0
                 for n in group:
                     next_index = index + n.get_node_count()
-                    node_to_ref_node[n] = RefNode(tem, index)
+                    ref_node = RefNode(tem, index)
+                    self.templates_refs.setdefault(tem.id, []).append(ref_node)
+                    node_to_ref_node[n] = ref_node
                     index = next_index
 
                 self._compress_node(tem)
@@ -252,9 +311,6 @@ class TemplateCompressor(Compressor):
         node.children = new_children
 
         return node
-
-    def _compress_templates(self):
-        raise NotImplementedError
 
 
     def _flatten_tree(self, node: Node):

@@ -21,7 +21,7 @@ from pympler import asizeof
 from perflowai.padoc import Trace, TemplateCompressor, CompressedTrace
 
 
-def compress_demo(input_file: str, origin_file: str, output_file: str, restore_file: str):
+def compress_single_rank_demo(input_file: str, origin_file: str, output_file: str, restore_file: str):
     """
     Compress a PerFlow-AI trace using TemplateCompressor, evaluate compression
     performance (file size + memory size), and verify correctness by reconstructing
@@ -71,13 +71,13 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
     """
 
     print(f"📥 Loading trace from {input_file}")
-    trace = Trace.from_json(input_file)
+    trace = Trace.from_file(input_file)
 
     # get the original trace memory size
     trace_size_mem = asizeof.asizeof(trace)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
 
-    # write the original trace to a binary file
+    # write the original trace to a file
     print(f"💾 Writing original trace to {origin_file}")
     trace.write_file(origin_file)
 
@@ -95,7 +95,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
     compressed_size_mem = asizeof.asizeof(compressed_trace)
     print(f"🧠 Compressed Trace memory size: {compressed_size_mem / 1024 / 1024:.2f} MB")
 
-    # write the compressed trace to a binary file
+    # write the compressed trace to a file
     print(f"💾 Writing compressed trace to {output_file}")
     compressed_trace.write_file(output_file)
 
@@ -121,7 +121,7 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
     # 1) load the compressed trace
     print(f"📥 Loading compressed trace from {output_file}")
-    compressed_trace = CompressedTrace.from_json(output_file)
+    compressed_trace = CompressedTrace.from_file(output_file)
     print("✅ Loaded successfully.")
 
     # 2) write the reconstructed trace to a binary file
@@ -140,6 +140,63 @@ def compress_demo(input_file: str, origin_file: str, output_file: str, restore_f
 
     print("Done.")
 
+def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, restore_dir: str):
+    """
+    Compress multiple PerFlow-AI trace files using TemplateCompressor
+    """
+
+    print(f"📥 Loading trace from {input_dir}")
+    trace = Trace.from_dir(input_dir)
+    if output_file.endswith(".json"):
+        file_type = "json"
+    else:
+        file_type = "bin"
+
+    trace_size_mem = asizeof.asizeof(trace)
+    print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
+
+    # write the original trace to a directory
+    print(f"💾 Writing original trace to {origin_dir}")
+    trace.write_dir(origin_dir, file_type)
+
+    # get the original directory size
+    origin_dir_size = sum(os.path.getsize(os.path.join(origin_dir, f)) \
+                          for f in os.listdir(origin_dir))
+    print(f"📦 Original directory size: {origin_dir_size / 1024 / 1024:.2f} MB")
+
+    # compress the trace
+    print("⚙️ Compressing trace ...")
+    compressor = TemplateCompressor()
+    compressed_trace = compressor.intra_compress(trace)
+    compressed_trace.segmented_linear_predictor_compress()
+
+    # get the compressed trace memory size
+    compressed_size_mem = asizeof.asizeof(compressed_trace)
+    print(f"🧠 Compressed Trace memory size: {compressed_size_mem / 1024 / 1024:.2f} MB")
+
+    # write the compressed trace to a file
+    print(f"💾 Writing compressed trace to {output_file}")
+    compressed_trace.write_file(output_file)
+
+    # get the compressed file size
+    compressed_file_size = os.path.getsize(output_file)
+    print(f"📦 Compressed file size: {compressed_file_size / 1024 / 1024:.2f} MB")
+
+    # calculate the compression ratio
+    file_compression_ratio = compressed_file_size / origin_dir_size if origin_dir_size else 0
+    mem_compression_ratio = compressed_size_mem / trace_size_mem if trace_size_mem else 0
+
+    print("\n📊 Compression Summary:")
+    print(
+        f"  💾 File compression ratio: {file_compression_ratio:.2%} "
+        f"(↓ {1 - file_compression_ratio:.2%})"
+    )
+    print(
+        f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} "
+        f"(↓ {1 - mem_compression_ratio:.2%})"
+    )
+
+
 
 def main():
     """Entry point for the command-line interface."""
@@ -152,9 +209,34 @@ def main():
                         type=str, help="output compressed trace file path")
     parser.add_argument("--reconstruct_file", default="reconstructed.bin",
                         type=str, help="path to write restored trace file")
+    parser.add_argument("--multi_rank_input_dir",
+                        type=str, help="input directory path for multi-rank")
+    parser.add_argument("--multi_rank_origin_dir",
+                        type=str, help="origin directory path for multi-rank")
+    parser.add_argument("--multi_rank_output_file",
+                        type=str, help="output compressed trace file path for multi-rank")
+    parser.add_argument("--multi_rank_reconstruct_dir",
+                        type=str, help="path to write restored trace dir for multi-rank")
+
     args = parser.parse_args()
 
-    compress_demo(args.input_file, args.origin_file, args.output_file, args.reconstruct_file)
+    print("=" * 50)
+    print("Compressing a single-rank trace demo")
+    print("=" * 50)
+    compress_single_rank_demo(args.input_file, args.origin_file,
+                              args.output_file, args.reconstruct_file)
+
+    if args.multi_rank_input_dir and args.multi_rank_origin_dir \
+        and args.multi_rank_output_file and args.multi_rank_reconstruct_dir:
+        print("=" * 50)
+        print("Compressing a multi-rank trace demo")
+        print("=" * 50)
+        compress_multi_rank_demo(args.multi_rank_input_dir, args.multi_rank_origin_dir,
+                                 args.multi_rank_output_file, args.multi_rank_reconstruct_dir)
+    else:
+        print("No multi-rank input directory provided, skipping multi-rank compression.")
+        print("To compress multi-rank traces, provide --multi_rank_input_dir, \
+              --multi_rank_origin_dir, --multi_rank_output_file, and --multi_rank_reconstruct_dir.")
 
 
 if __name__ == "__main__":

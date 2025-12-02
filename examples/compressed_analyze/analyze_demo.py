@@ -95,7 +95,7 @@ def analyze_demo(input_file: str, compressed_file: str = None, visualize: bool =
     if compressed_file and os.path.exists(compressed_file):
         file_to_load = compressed_file
         print(f"📦 Loading pre-compressed trace from {file_to_load} ...")
-        compressed_trace = CompressedTrace.from_json(file_to_load)
+        compressed_trace = CompressedTrace.from_file(file_to_load)
     else:
         file_to_load = input_file
         print(f"⚙️ Loading raw trace from {file_to_load} and compressing ...")
@@ -103,7 +103,7 @@ def analyze_demo(input_file: str, compressed_file: str = None, visualize: bool =
         if not os.path.exists(file_to_load):
             raise FileNotFoundError(f"Raw input file not found: {file_to_load}")
 
-        trace = Trace.from_json(file_to_load)
+        trace = Trace.from_file(file_to_load)
 
         # Compress the trace
         print("⚙️ Compressing trace ...")
