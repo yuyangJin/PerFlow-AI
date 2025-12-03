@@ -71,6 +71,10 @@ class BaseTrace(ABC):
         """Return the list of phases in the specified rank, pid, and tid."""
         return list(self.ranks.get(rank, {}).get(pid, {}).get(tid, {}).keys())
 
+    def set_ranks(self, ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]]):
+        """Set the trace ranks."""
+        self.ranks = ranks
+
     def get_node(self, rank: str, pid: str, tid: str, ph: str) -> Optional[BaseNode]:
         """Return the node for the specified rank, pid, tid and phase."""
         return self.ranks.get(rank, {}).get(pid, {}).get(tid, {}).get(ph)
@@ -254,7 +258,7 @@ class Trace(BaseTrace):
         if len(self.ranks) <= 1:
             logger.warning("Trace contains only one rank, writing to single file.")
 
-        if file_type not in ["json", "msgpack"]:
+        if file_type not in ["json", "bin"]:
             logger.warning("Unsupported trace file format: %s, writing as JSON.", file_type)
             file_type = "json"
 
@@ -280,7 +284,7 @@ class CompressedTrace(BaseTrace):
     """
 
     def __init__(self, templates: Dict[str, TemplateNode],
-                 ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]],
+                 ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]],
                  metadata: Dict[str, Any] | None = None):
 
         super().__init__(metadata)
@@ -330,51 +334,22 @@ class CompressedTrace(BaseTrace):
 
     def write_file(self, path: str, rank: str = "", origin: bool = False):
         out = {}
-        if rank == "":
-            rank = self.get_ranks()[0]
 
-        if origin:
-            out.update(self.metadata)
-            trace_events = []
+        out["metadata"] = self.metadata
+        out["templates"] = {}
+        out["ranks"] = {}
 
-            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+        for i, template in self.templates.items():
+            out["templates"][i] = template.to_dict()
 
-            for r, processes in rank_items:
-                for pid, tids in processes.items():
-                    for tid, phases in tids.items():
-                        for ph, node in phases.items():
-                            for e in node.get_all_events():
-                                event_dict = e.to_dict().copy()
-                                event_dict["pid"] = pid
-                                if tid.startswith("stream "):  
-                                    event_dict["tid"] = tid.split(" ")[1]
-                                else:
-                                    event_dict["tid"] = tid
-                                event_dict["ph"]  = ph
-                                trace_events.append(event_dict)
-
-            trace_events = sorted(trace_events, key=lambda x: x["ts"])
-
-            out = {"traceEvents": trace_events}
-            out.update(self.metadata[rank])
-
-        else:
-            out["metadata"] = self.metadata
-            out["templates"] = {}
-            out["ranks"] = {}
-
-            for i, template in self.templates.items():
-                out["templates"][i] = template.to_dict()
-
-            rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
-            for r, processes in rank_items:
-                out["ranks"][r] = {}
-                for pid, tids in processes.items():
-                    out["ranks"][r][pid] = {}
-                    for tid, phases in tids.items():
-                        out["ranks"][r][pid][tid] = {}
-                        for ph, node in phases.items():
-                            out["ranks"][r][pid][tid][ph] = node.to_dict()
+        for r, processes in self.ranks.items():
+            out["ranks"][r] = {}
+            for pid, tids in processes.items():
+                out["ranks"][r][pid] = {}
+                for tid, phases in tids.items():
+                    out["ranks"][r][pid][tid] = {}
+                    for ph, node in phases.items():
+                        out["ranks"][r][pid][tid][ph] = node.to_dict()
 
         ext = os.path.splitext(path)[1].lower()
 

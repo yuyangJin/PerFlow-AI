@@ -17,6 +17,7 @@ Run with:
 import os
 import argparse
 import filecmp
+from typing import List
 from pympler import asizeof
 from perflowai.padoc import Trace, TemplateCompressor, CompressedTrace
 
@@ -124,11 +125,15 @@ def compress_single_rank_demo(input_file: str, origin_file: str, output_file: st
     compressed_trace = CompressedTrace.from_file(output_file)
     print("✅ Loaded successfully.")
 
-    # 2) write the reconstructed trace to a binary file
-    print(f"💾 Writing reconstructed trace to {restore_file}")
-    compressed_trace.write_file(restore_file, origin=True)
+    # 2) decompress the compressed trace
+    trace = compressor.intra_decompress(compressed_trace)
+    print("✅ Decompressed successfully.")
 
-    # 3) compare the reconstructed file with the original file
+    # 3) write the reconstructed trace to a file
+    print(f"💾 Writing reconstructed trace to {restore_file}")
+    trace.write_file(restore_file, origin=True)
+
+    # 4) compare the reconstructed file with the original file
     print("🔎 Comparing reconstructed file with original...")
 
     if filecmp.cmp(origin_file, restore_file, shallow=False):
@@ -167,7 +172,7 @@ def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, 
     # compress the trace
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
-    compressed_trace = compressor.intra_compress(trace)
+    compressed_trace = compressor.inter_compress(trace)
     compressed_trace.segmented_linear_predictor_compress()
 
     # get the compressed trace memory size
@@ -195,6 +200,62 @@ def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, 
         f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} "
         f"(↓ {1 - mem_compression_ratio:.2%})"
     )
+
+    # test correctness
+    print("\n🔍 Testing correctness...")
+
+    # 1) load the compressed trace
+    print(f"📥 Loading compressed trace from {output_file}")
+    compressed_trace = CompressedTrace.from_file(output_file)
+    print(f"✅ Loaded successfully, have {len(compressed_trace.get_ranks())} ranks.")
+
+    # 2) decompress the compressed trace
+    trace = compressor.inter_decompress(compressed_trace)
+    print("✅ Decompressed successfully.")
+
+    # 3) write the reconstructed trace to a directory
+    print(f"💾 Writing reconstructed trace to {restore_dir}")
+    trace.write_dir(restore_dir, file_type)
+
+    # 4) compare the reconstructed file with the original file
+    print("🔎 Comparing reconstructed traces with original...")
+
+    # Get file lists from both directories
+    origin_files: List[str] = sorted(os.listdir(origin_dir))
+    restore_files: List[str] = sorted(os.listdir(restore_dir))
+
+    # Check if file lists are identical (names and number)
+    if origin_files != restore_files:
+        print("❌ Correctness test FAILED: File lists do not match.")
+        print(f"   Original files count: {len(origin_files)}")
+        print(f"   Reconstructed files count: {len(restore_files)}")
+        print("   Differences in file names/counts detected.")
+        return # Exit the function or skip further comparison
+
+    # Compare each corresponding file
+    all_passed = True
+    for filename in origin_files:
+        origin_file = os.path.join(origin_dir, filename)
+        restore_file = os.path.join(restore_dir, filename)
+
+        # Check if they are files before attempting comparison
+        if os.path.isfile(origin_file) and os.path.isfile(restore_file):
+            if filecmp.cmp(origin_file, restore_file, shallow=False):
+                print(f"  ✅ {filename} PASSED") # Optional: print success for each file
+            else:
+                print(f"  ❌ Correctness test FAILED: {filename} != original file")
+                print("     You should inspect differences, e.g.:")
+                print(f"     diff -u {origin_file} {restore_file}")
+                all_passed = False
+        else:
+            print(f"  ⚠️ Skipping comparison for non-file item: {filename}")
+
+    if all_passed:
+        print("✅ Correctness test PASSED: All reconstructed files match original files.")
+    else:
+        print("❌ Correctness test FAILED: One or more files failed comparison.")
+
+    print("Done.")
 
 
 

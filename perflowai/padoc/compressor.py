@@ -61,7 +61,7 @@ class TemplateCompressor(Compressor):
         self.find_template_time = 0
         self.check_same_node_time = 0
 
-    def _compress_rank(self, trace: BaseTrace, rank: str) -> BaseTrace:
+    def _compress_rank(self, trace: BaseTrace, rank: str) -> Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
         self.build_tree_time = 0
         self.compress_tree_time = 0
@@ -74,16 +74,16 @@ class TemplateCompressor(Compressor):
         self.next_template_id = 0
         self.name2id = {}
 
-        # rank -> pid -> tid -> node
+        # pid -> tid -> ph -> node
         compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
 
         logger.info("Intra compressing rank %s", rank)
 
-        for r, pid, tid, ph, node in trace.iter_nodes(rank):
+        for _, pid, tid, ph, node in trace.iter_nodes(rank):
             logger.info("Compressing pid %s tid %s ph %s", pid, tid, ph)
 
             compressed_ranks.setdefault(
-                str(r), {}).setdefault(str(pid), {}).setdefault(str(tid), {})
+                str(pid), {}).setdefault(str(tid), {})
 
             if ph == "X":
                 build_start_time = time.time()
@@ -94,7 +94,7 @@ class TemplateCompressor(Compressor):
             conpress_start_time = time.time()
             root = self._compress_node(root)
             self.compress_tree_time += time.time() - conpress_start_time
-            compressed_ranks[str(r)][str(pid)][str(tid)][ph] = root
+            compressed_ranks[str(pid)][str(tid)][ph] = root
 
         compress_time = time.time() - strat_time
         logger.info("There are %d templates, cost %.3f s", len(self.templates), compress_time)
@@ -109,9 +109,10 @@ class TemplateCompressor(Compressor):
 
         if rank == "":
             rank = trace.get_ranks()[0]
-        compressed_ranks = self._compress_rank(trace, rank)
+        compressed_rank = self._compress_rank(trace, rank)
+        ranks = {rank: compressed_rank}
 
-        return CompressedTrace(self.templates, compressed_ranks, trace.get_metadata())
+        return CompressedTrace(self.templates, ranks, trace.get_metadata())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
@@ -119,11 +120,11 @@ class TemplateCompressor(Compressor):
         self.templates = {}
         final_templates: Dict[str, TemplateNode] = {}
         all_name2id: Dict[str, List[str]] = {}
-        all_compressed_ranks: Dict[str, Dict[str, Union[Node, RefNode]]] = {}
+        all_compressed_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
 
         for rank in trace.get_ranks():
             compressed_ranks = self._compress_rank(trace, rank)
-            all_compressed_ranks.update(compressed_ranks)
+            all_compressed_ranks[rank] = compressed_ranks
             final_templates, all_name2id = self._merge_templates(final_templates, all_name2id)
 
         return CompressedTrace(final_templates, all_compressed_ranks, trace.get_metadata())
@@ -139,14 +140,14 @@ class TemplateCompressor(Compressor):
 
             return all_templates, all_name2id
 
-        for v in self.templates.values():
+        for k, v in self.templates.items():
             name = v.get_first_event_name()
             ids = all_name2id.get(name, [])
             found = False
             for i in ids:
                 if all_templates[i].is_same_node(v):
                     index = all_templates[i].get_node_count()
-                    for ref_node in self.templates_refs[i]:
+                    for ref_node in self.templates_refs[k]:
                         ref_node.update_template(all_templates[i], index)
                     all_templates[i].add_nodes([v])
                     found = True
@@ -330,10 +331,40 @@ class TemplateCompressor(Compressor):
 
         return node
 
-    def intra_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
-        assert isinstance(compressed_trace, Trace), "Compressed trace must be of type Trace"
-        raise NotImplementedError
+    def _decompress_rank(self, compressed_trace: BaseTrace, rank: str):
+        assert isinstance(compressed_trace, CompressedTrace), \
+            "Compressed trace must be of type CompressedTrace"
+
+        new_rank: Dict[str, Dict[str, Dict[str, Node]]] = {}
+        for _, pid, tid, ph, node in compressed_trace.iter_nodes(rank):
+            new_node = Node()
+            events = node.get_all_events()
+            new_node.add_events(events)
+            new_rank.setdefault(pid, {}).setdefault(tid, {})[ph] = new_node
+
+        return new_rank
+
+    def intra_decompress(self, compressed_trace: BaseTrace, rank: str = "") -> BaseTrace:
+        assert isinstance(compressed_trace, CompressedTrace), \
+            "Compressed trace must be of type CompressedTrace"
+
+        if rank == "":
+            rank = compressed_trace.get_ranks()[0]
+        new_rank = self._decompress_rank(compressed_trace, rank)
+        ranks = {rank: new_rank}
+        trace = Trace(metadata=compressed_trace.get_metadata())
+        trace.set_ranks(ranks)
+        return trace
 
     def inter_decompress(self, compressed_trace: BaseTrace) -> BaseTrace:
-        assert isinstance(compressed_trace, Trace), "Compressed trace must be of type Trace"
-        raise NotImplementedError
+        assert isinstance(compressed_trace, CompressedTrace), \
+            "Compressed trace must be of type CompressedTrace"
+
+        all_ranks = {}
+        for rank in compressed_trace.get_ranks():
+            new_rank = self._decompress_rank(compressed_trace, rank)
+            all_ranks[rank] = new_rank
+
+        trace = Trace(metadata=compressed_trace.get_metadata())
+        trace.set_ranks(all_ranks)
+        return trace
