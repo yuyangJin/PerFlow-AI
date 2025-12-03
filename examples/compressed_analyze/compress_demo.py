@@ -272,11 +272,11 @@ def main():
                         type=str, help="path to write restored trace file")
     parser.add_argument("--multi_rank_input_dir",
                         type=str, help="input directory path for multi-rank")
-    parser.add_argument("--multi_rank_origin_dir",
-                        type=str, help="origin directory path for multi-rank")
-    parser.add_argument("--multi_rank_output_file",
+    parser.add_argument("--multi_rank_origin_dir", default="origin_dir",
+                        type=str, help="origin directory path for multi-rank to write original traces")
+    parser.add_argument("--multi_rank_output_file", default="compressed_multi_rank.bin",
                         type=str, help="output compressed trace file path for multi-rank")
-    parser.add_argument("--multi_rank_reconstruct_dir",
+    parser.add_argument("--multi_rank_reconstruct_dir", default="reconstructed_dir",
                         type=str, help="path to write restored trace dir for multi-rank")
 
     args = parser.parse_args()
