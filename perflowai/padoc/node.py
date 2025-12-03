@@ -369,6 +369,7 @@ class TemplateNode(BaseNode):
                 obj.children.append(RefNode.from_dict(c, templates_dict, templates))
             else:
                 obj.children.append(TemplateNode.from_dict(c, templates_dict, templates))
+        obj.node_count = obj.events[0].get_len()
         return obj
 
 
@@ -390,7 +391,7 @@ class RefNode(BaseNode):
         self.ref = template
         self.index += index
 
-    def is_same_node(self, other: BaseNode, debug: bool = False) -> bool:
+    def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         # TODO:
         pass
 

@@ -61,7 +61,8 @@ class TemplateCompressor(Compressor):
         self.find_template_time = 0
         self.check_same_node_time = 0
 
-    def _compress_rank(self, trace: BaseTrace, rank: str) -> Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]:
+    def _compress_rank(self, trace: BaseTrace, rank: str) -> \
+        Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
         self.build_tree_time = 0
         self.compress_tree_time = 0
@@ -73,6 +74,7 @@ class TemplateCompressor(Compressor):
         self.templates = {}
         self.next_template_id = 0
         self.name2id = {}
+        self.templates_refs = {}
 
         # pid -> tid -> ph -> node
         compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
@@ -131,6 +133,8 @@ class TemplateCompressor(Compressor):
 
     def _merge_templates(self, all_templates: Dict[str, TemplateNode],
                         all_name2id: Dict[str, List[str]]):
+        logger.info("Merging %d templates, before merged have %d templates",
+                    len(self.templates), len(all_templates))
 
         if all_templates == {}:
 
@@ -154,10 +158,13 @@ class TemplateCompressor(Compressor):
                     break
 
             if not found:
+                print(f"{name} not found, ids: {ids} {k in ids}")
                 next_id = str(len(all_templates))
                 all_templates[next_id] = v
                 all_templates[next_id].id = next_id
                 all_name2id.setdefault(name, []).append(next_id)
+
+        logger.info("After merged have %d templates", len(all_templates))
 
         return all_templates, all_name2id
 
@@ -300,7 +307,7 @@ class TemplateCompressor(Compressor):
                     node_to_ref_node[n] = ref_node
                     index = next_index
 
-                self._compress_node(tem)
+                # self._compress_node(tem)
 
         new_children = []
         for child in node.get_children():
@@ -362,6 +369,7 @@ class TemplateCompressor(Compressor):
 
         all_ranks = {}
         for rank in compressed_trace.get_ranks():
+            logger.info("decompressing rank %s", rank)
             new_rank = self._decompress_rank(compressed_trace, rank)
             all_ranks[rank] = new_rank
 

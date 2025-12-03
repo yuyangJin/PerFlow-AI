@@ -241,7 +241,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -355,7 +355,7 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)

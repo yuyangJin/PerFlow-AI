@@ -146,6 +146,9 @@ class MergeEvent(BaseEvent):
 
     def is_merged(self) -> bool:
         return True
+    
+    def get_len(self) -> int:
+        return len(self.raw.get("ts", []))
 
     def get_event_by_index(self, index: int) -> Event:
         """Get the event at the specified index."""
