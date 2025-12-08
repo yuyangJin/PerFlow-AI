@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 import time
 import re
 from .trace import BaseTrace, Trace, CompressedTrace
-from .node import BaseNode, Node, TemplateNode, RefNode
+from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode
 from .utils import logger
 
 class Compressor(ABC):
@@ -80,7 +80,6 @@ class TemplateCompressor(Compressor):
         logger.info("Intra compressing rank %s", rank)
 
         for _, pid, tid, ph, node in trace.iter_nodes(rank):
-            logger.info("Compressing pid %s tid %s ph %s", pid, tid, ph)
 
             compressed_ranks.setdefault(
                 str(pid), {}).setdefault(str(tid), {})
@@ -122,6 +121,15 @@ class TemplateCompressor(Compressor):
             self._compress_node(tem_node, self.templates, self.name2id)
         logger.info("After compressing, have %d templates", len(self.templates))
 
+        for k, v in self.templates.items():
+            self.templates[k] = self._merge_ref(v)
+
+        for _, compressed_ranks in ranks.items():
+            for _, tids in compressed_ranks.items():
+                for _, phs in tids.items():
+                    for ph, node in phs.items():
+                        phs[ph] = self._merge_ref(node)
+
         return CompressedTrace(self.templates, ranks, trace.get_metadata())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
@@ -142,6 +150,15 @@ class TemplateCompressor(Compressor):
 
         for tem_node in list(final_templates.values()):
             self._compress_node(tem_node, final_templates, all_name2id)
+
+        for rank, compressed_ranks in all_compressed_ranks.items():
+            for pid, tids in compressed_ranks.items():
+                for tid, phs in tids.items():
+                    for ph, node in phs.items():
+                        phs[ph] = self._merge_ref(node)
+
+        for k, v in final_templates.items():
+            final_templates[k] = self._merge_ref(v)
 
         return CompressedTrace(final_templates, all_compressed_ranks, trace.get_metadata())
 
@@ -181,6 +198,46 @@ class TemplateCompressor(Compressor):
         logger.info("After merged have %d templates", len(all_templates))
 
         return all_templates, all_name2id
+
+    def _merge_ref(self, node: BaseNode) -> BaseNode:
+        if isinstance(node, RefNode) or isinstance(node, GroupRefNode):
+            return node
+
+        new_children: List[BaseNode] = []
+        current_ref_list: List[TemplateNode] = []
+        current_index_list: List[int] = []
+
+        children = node.get_children()
+
+        for child in children:
+            merged_child = self._merge_ref(child)
+
+            if isinstance(merged_child, RefNode):
+                current_ref_list.append(merged_child.ref)
+                current_index_list.append(merged_child.index)
+
+            elif isinstance(merged_child, GroupRefNode):
+                current_ref_list.extend(merged_child.ref)
+                current_index_list.extend(merged_child.index)
+
+            else:
+
+                if current_ref_list:
+                    group_node = GroupRefNode(current_ref_list, current_index_list)
+                    print(f"merge {len(current_index_list)} refs")
+                    new_children.append(group_node)
+
+                    current_ref_list = []
+                    current_index_list = []
+
+                new_children.append(merged_child)
+
+        if current_ref_list:
+            group_node = GroupRefNode(current_ref_list, current_index_list)
+            new_children.append(group_node)
+
+        node.set_children(new_children)
+        return node
 
     def _build_call_tree(self, node: Node) -> Tuple[Node, Optional[Node]]:
         events = sorted(node.events, key=lambda e: e.get_ts())

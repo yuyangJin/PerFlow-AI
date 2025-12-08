@@ -103,7 +103,7 @@ class Node(BaseNode):
 
     def __init__(self, events: List[Event] | None = None):
         self.events: List[Event] = events or []
-        self.children: List[Union[Node, RefNode]] = []
+        self.children: List[Union[Node, RefNode, GroupRefNode]] = []
 
     def get_events(self) -> List[Event]:
         return self.events
@@ -121,13 +121,13 @@ class Node(BaseNode):
         """Add a list of events to this node."""
         self.events.extend(events)
 
-    def get_children(self) -> List[Union[Node, RefNode]]:
+    def get_children(self) -> List[Union[Node, RefNode, GroupRefNode]]:
         return self.children
 
-    def set_children(self, children: List[Union[Node, RefNode]]):
+    def set_children(self, children: List[BaseNode]):
         self.children = children
 
-    def add_child(self, child: Union[Node, RefNode]):
+    def add_child(self, child: BaseNode):
         self.children.append(child)
 
     def get_first_event_name(self):
@@ -207,7 +207,7 @@ class Node(BaseNode):
     @classmethod
     def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] | None = None,
                   templates: Dict[str, TemplateNode] | None = None):
-        assert "events" in data, "Node must have events."
+        assert "events" in data, f"Node must have events. {data.keys()}"
         assert "children" in data, "Node must have children."
 
         obj = cls.__new__(cls)
@@ -216,6 +216,8 @@ class Node(BaseNode):
         for c in data["children"]:
             if "ref_node_id" in c:
                 obj.children.append(RefNode.from_dict(c, templates_dict, templates))
+            elif "ref_node_ids" in c:
+                obj.children.append(GroupRefNode.from_dict(c, templates_dict, templates))
             else:
                 obj.children.append(Node.from_dict(c, templates_dict, templates))
         return obj
@@ -303,7 +305,7 @@ class TemplateNode(BaseNode):
         return self.children
 
     def set_children(self, children: List[BaseNode]):
-        pass
+        self.children = children
 
     def add_child(self, child: BaseNode):
         pass
@@ -381,6 +383,8 @@ class TemplateNode(BaseNode):
         for c in data["children"]:
             if "ref_node_id" in c:
                 obj.children.append(RefNode.from_dict(c, templates_dict, templates))
+            elif "ref_node_ids" in c:
+                obj.children.append(GroupRefNode.from_dict(c, templates_dict, templates))
             else:
                 obj.children.append(TemplateNode.from_dict(c, templates_dict, templates))
         obj.node_count = obj.events[0].get_len()
@@ -465,3 +469,88 @@ class RefNode(BaseNode):
             )
 
         return RefNode(templates[ref_id], int(data["index"]))
+
+
+class GroupRefNode(BaseNode):
+    """A lightweight reference to a list of TemplateNodes at given indexs.
+    """
+
+    def __init__(self, ref_list: List[TemplateNode], index: list[int]):
+        self.ref = ref_list
+        self.index = index
+
+    def add_ref(self, ref: TemplateNode, index: int):
+        """Add a reference to a new template and index."""
+        self.ref.append(ref)
+        self.index.append(index)
+
+    def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
+        return False
+
+    def get_events(self) -> List[BaseEvent]:
+        results = []
+        for r in self.ref:
+            results.extend(r.get_events_by_index(self.index))
+        return results
+
+    def get_all_events(self, index: Optional[int] = None) -> List[BaseEvent]:
+        results = []
+        if index is not None:
+            for r, i in zip(self.ref, self.index):
+                results.extend(r.get_events_by_index(i + index))
+        else:
+            for r, i in zip(self.ref, self.index):
+                results.extend(r.get_events_by_index(i))
+        return results
+
+    def get_children(self) -> List[BaseNode]:
+        pass
+
+    def set_children(self, children: List[BaseNode]):
+        pass
+
+    def add_child(self, child: BaseNode):
+        pass
+
+    def get_first_event_name(self):
+        return self.ref[0].get_first_event_name()
+
+    def events_visitor(self, index: int = 0) -> Generator[Event, None, None]:
+        for r, i in zip(self.ref, self.index):
+            yield from r.events_visitor(i + index)
+
+    def get_node_count(self) -> int:
+        return sum(r.get_node_count() for r in self.ref)
+
+    def segmented_linear_predictor_compress(self):
+        """Compress this node using segmented linear predictor."""
+        return
+
+    def to_dict(self) -> Dict:
+        # assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
+        return {
+            "ref_node_ids": [r.id for r in self.ref],
+            "index": self.index
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict, templates_dict: Dict[str, Any] | None = None,
+                  templates: Dict[str, TemplateNode] | None = None):
+        assert "ref_node_ids" in data, "RefNode must have a ref_node_id."
+        assert "index" in data, "RefNode must have an index."
+
+        ref_ids = data["ref_node_ids"]
+        assert all(ref_id in templates_dict for ref_id in ref_ids), (
+            f"RefNode ref_node_ids {ref_ids} not found in "
+            f"templates_dict {templates_dict.keys()}."
+        )
+
+        for ref_id in ref_ids:
+            if int(ref_id) not in templates:
+                templates[ref_id] = TemplateNode.from_dict(
+                    templates_dict[ref_id],
+                    templates_dict,
+                    templates
+                )
+
+        return GroupRefNode([templates[ref_id] for ref_id in ref_ids], data["index"])

@@ -30,7 +30,7 @@ import msgpack
 
 from perflowai.padoc.utils import logger
 from perflowai.padoc.event import Event
-from perflowai.padoc.node import BaseNode, Node, TemplateNode, RefNode
+from perflowai.padoc.node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -252,7 +252,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -335,6 +335,9 @@ class CompressedTrace(BaseTrace):
                         if "ref_node_id" in node_dict:
                             ranks[rank][pid][tid][ph] = \
                                 RefNode.from_dict(node_dict, data["templates"], templates)
+                        elif "ref_node_ids" in node_dict:
+                            ranks[rank][pid][tid][ph] = \
+                                GroupRefNode.from_dict(node_dict, data["templates"], templates)
                         else:
                             ranks[rank][pid][tid][ph] = \
                                 Node.from_dict(node_dict, data["templates"], templates)
@@ -366,7 +369,7 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
