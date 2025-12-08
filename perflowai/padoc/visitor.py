@@ -11,9 +11,9 @@ class StreamMergedEventsIterator:
     """
 
     def __init__(self, trace: BaseTrace, rank: str):
-        self.priority_queue: List[Tuple[int, int, BaseEvent]] = []
+        self.priority_queue: List[Tuple[int, str, BaseEvent]] = []
         self.streams: List[Generator[BaseEvent, None, None]] = []
-        self.index_dict: Dict[int, int] = {}
+        self.index_dict: Dict[str, int] = {}
         self.rank = rank
 
         for pid in trace.get_pids(rank):
@@ -21,8 +21,8 @@ class StreamMergedEventsIterator:
                 is_stream = tid.startswith("stream")
                 if is_stream:
                     x_node = trace.get_node(rank, pid, tid, "X")
-                    stream_id_int = int(tid.split(" ")[1])
-                    unique_stream_key = f"{pid}_{stream_id_int}"
+                    stream_id = tid.split(" ")[1]
+                    unique_stream_key = f"{pid}_{stream_id}"
                     self.index_dict[unique_stream_key] = len(self.streams)
                     stream = x_node.events_visitor()
                     self.streams.append(stream)
@@ -36,7 +36,7 @@ class StreamMergedEventsIterator:
     def __iter__(self) -> Generator[Event, None, None]:
         return self
 
-    def __next__(self) -> Tuple[Event, int]:
+    def __next__(self) -> Tuple[Event, str]:
         if not self.priority_queue:
             raise StopIteration
 

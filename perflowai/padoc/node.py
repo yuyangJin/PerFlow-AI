@@ -171,16 +171,32 @@ class Node(BaseNode):
             if debug:
                 logger.debug("%s Node is_same_node: Different child count: %d vs %d",
                              ind, len(self.children), len(other.get_children()))
+                for i in range(len(other.get_children())):
+                    if i < len(self.children):
+                        logger.debug("%s Node is_same_node: %s",
+                                     ind, \
+                                     self.children[i].get_first_event_name() == \
+                                        other.get_children()[i].get_first_event_name())
+                    else:
+                        logger.debug("%s Node is_same_node: %s",
+                                     ind, other.get_children()[i].get_first_event_name())
             return False
 
         for i, child in enumerate(self.children):
             if not child.is_same_node(other.get_children()[i], debug=debug, indent=indent+2):
                 if debug:
                     logger.debug("%s Node is_same_node: Different child: %s vs %s",
-                                 ind, child, other.get_children()[i])
+                                 ind, child.get_first_event_name(), \
+                                 other.get_children()[i].get_first_event_name())
                 return False
 
         return True
+
+    def sort_events(self):
+        """Sort events in this node by their timestamps."""
+        assert len(self.children) == 0, "Cannot sort events in a non-leaf node."
+
+        self.events.sort(key=lambda e: e.get_ts())
 
     def to_dict(self) -> Dict:
         return {
@@ -287,11 +303,9 @@ class TemplateNode(BaseNode):
         return self.children
 
     def set_children(self, children: List[BaseNode]):
-        # TODO: 这里需要做一些限制，比如不能直接设置到TemplateNode，只能通过merge_nodes
         pass
 
     def add_child(self, child: BaseNode):
-        # TODO: 这里需要做一些限制，比如不能直接添加到TemplateNode，只能通过merge_nodes
         pass
 
     def get_first_event_name(self):
@@ -392,8 +406,7 @@ class RefNode(BaseNode):
         self.index += index
 
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
-        # TODO:
-        pass
+        return False
 
     def get_events(self) -> List[BaseEvent]:
         return self.ref.get_events_by_index(self.index)

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
-from .slp import SegmentedLinearPredictorCompressor
+from .slp import SegmentedLinearPredictorCompressor as SLP
 from .utils import logger
 
 class BaseEvent(ABC):
@@ -62,7 +62,7 @@ class BaseEvent(ABC):
 
         ignore_keys = {"ts", "dur", "id", "args", "name_pattern"}
 
-        if self.raw.keys() != other.to_dict().keys():
+        if self.raw.keys() - {"name_pattern"} != other.to_dict().keys() - {"name_pattern"}:
             if debug:
                 logger.debug(f"Keys mismatch: {self.raw.keys()} vs {other.to_dict().keys()}")
             return False
@@ -146,8 +146,9 @@ class MergeEvent(BaseEvent):
 
     def is_merged(self) -> bool:
         return True
-    
+
     def get_len(self) -> int:
+        """Get the number of events in the merged event."""
         return len(self.raw.get("ts", []))
 
     def get_event_by_index(self, index: int) -> Event:
@@ -157,18 +158,21 @@ class MergeEvent(BaseEvent):
         name_pattern = ""
         for k, v in self.raw.items():
             if k == "name_pattern":
-                name_pattern = v
+                continue
             elif k in self.merge_keys:
                 if k == "args":
                     content[k] = {}
                     for arg_key, arg_val in v.items():
                         content[k][arg_key] = arg_val[index]
+                elif k == "name":
+                    content[k] = \
+                            SLP.decompress_names(v, self.raw["name_pattern"], index)
                 else:
                     content[k] = v[index]
             else:
                 content[k] = v
 
-        content["name"] = self._format_name(name_pattern, content.get("name", []))
+        # content["name"] = self._format_name(name_pattern, content.get("name", []))
 
         return Event(content)
 
@@ -263,6 +267,14 @@ class MergeEvent(BaseEvent):
         #         self.raw["name"] = self.raw["name_pattern"]
         # else:
         #     self.raw["name"] = result
+
+        self.raw["name"], self.raw["name_pattern"] = \
+            SLP.compress_names(self.raw["name"], self.raw["name_pattern"])
+
+        # self.raw["args"] = {k: [] for k in self.raw.get("args", {})}
+        # self.raw["args"] = {}
+        # self.raw["ts"] = [len(self.raw.get("ts", []))]
+        # self.raw["dur"] = []
 
         # args = self.raw.get("args", {})
         # for key, val in args.items():

@@ -1,28 +1,47 @@
 from typing import List, Dict, Any, Optional, Tuple
 import bisect
 import numpy as np
+import re
 from .utils import logger
 
 class SegmentedLinearPredictorCompressor:
 
     @classmethod
-    def compress_names(cls, names: List[List[int]]):
+    def compress_names(cls, names: List[List[str]], name_pattern: str):
         """Compress names
         """
 
-        result = []
+        if len(names[0]) == 0:
+            return [], name_pattern
 
-        if cls._all_same_names(names):
-            logger.info("All names are the same, no need to compress")
-            return None
+        name = names[0]
+        same = True
 
-        for name in names:
-            result.append(cls._compress_name(name))
+        for i in range(1, len(names)):
+            if names[i] != name:
+                same = False
+                break
 
-        logger.info(f"Compressed names: {result}")
+        if same:
+            it = iter(name)
+            return [], re.sub(r"0", lambda _: str(next(it)), name_pattern)
 
-        return result
-    
+        # print(names, name_pattern)
+
+        return names, name_pattern
+
+    @classmethod
+    def decompress_names(cls, compressed_names, name_pattern: str, index: int) -> str:
+        """Decompress names
+        """
+
+        if len(compressed_names) == 0:
+            return name_pattern
+
+        nums = compressed_names[index]
+        it = iter(nums)
+        return re.sub(r"0", lambda _: str(next(it)), name_pattern)
+
     @classmethod
     def compress_ids(cls, ids: List[int]) -> List[Tuple[int, int, int]]:
         """Compress ids by identifying and encoding contiguous arithmetic progressions.

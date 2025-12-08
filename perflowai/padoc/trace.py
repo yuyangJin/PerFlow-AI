@@ -211,14 +211,25 @@ class Trace(BaseTrace):
                             for e in node.get_events():
                                 event_dict = e.to_dict().copy()
                                 event_dict["pid"] = pid
-                                if tid.startswith("stream "):
-                                    event_dict["tid"] = tid.split(" ")[1]
-                                else:
-                                    event_dict["tid"] = tid
+                                t = tid
+                                if t.startswith("stream "):
+                                    t = t.split(" ")[1]
+                                if t.endswith("-abnormal"):
+                                    t = t.split("-")[0]
+
+                                event_dict["tid"] = t
                                 event_dict["ph"]  = ph
                                 trace_events.append(event_dict)
 
-            trace_events = sorted(trace_events, key=lambda x: x["ts"])
+            trace_events = sorted(
+                trace_events,
+                key=lambda x: (
+                    x["ts"],
+                    x.get("ph", ""),
+                    x.get("name", ""),
+                    x.get("dur", 0)
+                )
+            )
 
             out = {"traceEvents": trace_events}
             out.update(self.metadata[rank])
@@ -241,7 +252,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -355,7 +366,7 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
