@@ -151,9 +151,9 @@ class TemplateCompressor(Compressor):
         for tem_node in list(final_templates.values()):
             self._compress_node(tem_node, final_templates, all_name2id)
 
-        for rank, compressed_ranks in all_compressed_ranks.items():
-            for pid, tids in compressed_ranks.items():
-                for tid, phs in tids.items():
+        for _, compressed_ranks in all_compressed_ranks.items():
+            for _, tids in compressed_ranks.items():
+                for _, phs in tids.items():
                     for ph, node in phs.items():
                         phs[ph] = self._merge_ref(node)
 
@@ -224,7 +224,6 @@ class TemplateCompressor(Compressor):
 
                 if current_ref_list:
                     group_node = GroupRefNode(current_ref_list, current_index_list)
-                    print(f"merge {len(current_index_list)} refs")
                     new_children.append(group_node)
 
                     current_ref_list = []
@@ -260,9 +259,6 @@ class TemplateCompressor(Compressor):
             if stack:
                 top_event = stack[-1].events[0]
                 if top_event.get_ts() + top_event.get_dur() < e.get_ts() + e.get_dur():
-                    logger.warning("Abnormal node found, last event %s %d\n current event %s %d", \
-                                   top_event.get_name(), top_event.get_ts(), \
-                                   e.get_name(), e.get_ts())
                     abnormal_root.add_child(new_node)
                     continue
                 else:
@@ -279,8 +275,6 @@ class TemplateCompressor(Compressor):
         else:
             root = Node()
             for r in roots:
-                if len(roots) < 10:
-                    print(r.get_first_event_name())
                 root.add_child(r)
 
         if len(abnormal_root.get_children()) == 0:

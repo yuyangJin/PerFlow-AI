@@ -219,6 +219,8 @@ class Trace(BaseTrace):
 
                                 event_dict["tid"] = t
                                 event_dict["ph"]  = ph
+                                event_dict["name"] = e.get_name()
+                                event_dict["ts"]  = e.get_ts()
                                 trace_events.append(event_dict)
 
             trace_events = sorted(
@@ -252,7 +254,7 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
@@ -303,10 +305,11 @@ class CompressedTrace(BaseTrace):
 
         self.templates: Dict[str, TemplateNode] = templates
 
-    def segmented_linear_predictor_compress(self):
-        """Segmented linear predictor compression for templates."""
+    def compress_templates_values(self) -> None:
+        """Compress the values of templates."""
         for node in self.templates.values():
-            node.segmented_linear_predictor_compress()
+            node.compress_event_values()
+            node.try_compress_args_id()
 
     @classmethod
     def from_file(cls, path: str) -> CompressedTrace:
@@ -369,7 +372,7 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f)
+                json.dump(out, f, indent=2)
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)

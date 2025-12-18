@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 import bisect
 import numpy as np
 import re
@@ -43,6 +43,43 @@ class SegmentedLinearPredictorCompressor:
         return re.sub(r"0", lambda _: str(next(it)), name_pattern)
 
     @classmethod
+    def compress_same_args(cls, args: Dict[str, List[Any]]) -> None:
+        """Compress arguments that are the same for all examples.
+        """
+
+        for key, value in args.items():
+            if cls._all_same_args(value):
+                args[key] = [value[0]]
+
+    @classmethod
+    def decompress_same_args(cls, args: Dict[str, List[Any]], index: int) \
+        -> Dict[str, Any]:
+        """Decompress arguments that are the same for all examples.
+        """
+
+        result = {}
+        for key, value in args.items():
+            if len(value) == 1:
+                result[key] = value[0]
+            else:
+                result[key] = value[index]
+
+        return result
+
+    @classmethod
+    def _all_same_args(cls, args: List[Any]) -> bool:
+        """Check if all arguments are the same
+        """
+        if len(args) == 0:
+            return True
+
+        for arg in args:
+            if arg != args[0]:
+                return False
+
+        return True
+
+    @classmethod
     def compress_ids(cls, ids: List[int]) -> List[Tuple[int, int, int]]:
         """Compress ids by identifying and encoding contiguous arithmetic progressions.
         
@@ -51,17 +88,17 @@ class SegmentedLinearPredictorCompressor:
         
         Example: [10, 12, 14, 15, 16] -> [(10, 2, 0), (15, 1, 3)]
         """
-        
+
         if not ids:
             logger.info("IDs list is empty, returning empty list.")
             return []
-        
+
         if not isinstance(ids[0], int):
             logger.info(f"IDs list is not a list of integers {ids}, returning original list.")
             return ids
 
         result = cls._find_arithmetic_progression_blocks(ids)
-        
+
         logger.info(f"Compressed IDs: {result}")
         return result
 

@@ -17,12 +17,27 @@ Run with:
 import os
 import argparse
 import filecmp
+import json
 from typing import List
 from pympler import asizeof
 from perflowai.padoc import Trace, TemplateCompressor, CompressedTrace
 
+def get_original_json_mem_size(input_file):
+    """测量原始 JSON 文件加载到内存（作为 dict/list）后的大小。"""
+    with open(input_file, 'r', encoding='utf-8') as f:
+        # 使用 json.load() 读取原始的 Python 结构
+        original_data_structure = json.load(f)
 
-def compress_single_rank_demo(input_file: str, origin_file: str, output_file: str, restore_file: str):
+    # 测量这个原始 Python 数据结构（dict/list）的内存大小
+    mem_size = asizeof.asizeof(original_data_structure)
+    return mem_size
+
+
+def compress_single_rank_demo(input_file: str,
+                              origin_file: str,
+                              output_file: str,
+                              restore_file: str
+    ):
     """
     Compress a PerFlow-AI trace using TemplateCompressor, evaluate compression
     performance (file size + memory size), and verify correctness by reconstructing
@@ -75,7 +90,7 @@ def compress_single_rank_demo(input_file: str, origin_file: str, output_file: st
     trace = Trace.from_file(input_file)
 
     # get the original trace memory size
-    trace_size_mem = asizeof.asizeof(trace)
+    trace_size_mem = get_original_json_mem_size(input_file)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
 
     # write the original trace to a file
@@ -90,7 +105,7 @@ def compress_single_rank_demo(input_file: str, origin_file: str, output_file: st
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.intra_compress(trace)
-    compressed_trace.segmented_linear_predictor_compress()
+    compressed_trace.compress_templates_values()
 
     # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)
@@ -173,7 +188,7 @@ def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, 
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.inter_compress(trace)
-    compressed_trace.segmented_linear_predictor_compress()
+    compressed_trace.compress_templates_values()
 
     # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)

@@ -40,6 +40,10 @@ class BaseEvent(ABC):
         """Get the duration of the event."""
         return self.raw.get("dur", 0)
 
+    def get_args(self) -> Dict[str, Any]:
+        """Get the arguments of the event."""
+        return self.raw.get("args", {})
+
     def __getitem__(self, key: str) -> Any:
         """
         Allows dictionary-like access to the internal raw data (self.raw).
@@ -133,10 +137,10 @@ class MergeEvent(BaseEvent):
     the events. The resulting merged event is represented as a dictionary
     with the merged values for each key.
     """
+    merge_keys = ["ts", "dur", "id", "args", "name"]
 
-    def __init__(self, events: List[BaseEvent] | None = None, merge_keys: List[str] | None = None):
+    def __init__(self, events: List[BaseEvent] | None = None):
         super().__init__()
-        self.merge_keys = merge_keys or ["ts", "dur", "id", "args", "name"]
 
         if events:
             self.add_events(events)
@@ -155,15 +159,12 @@ class MergeEvent(BaseEvent):
         """Get the event at the specified index."""
 
         content = {}
-        name_pattern = ""
         for k, v in self.raw.items():
             if k == "name_pattern":
                 continue
-            elif k in self.merge_keys:
+            elif k in MergeEvent.merge_keys:
                 if k == "args":
-                    content[k] = {}
-                    for arg_key, arg_val in v.items():
-                        content[k][arg_key] = arg_val[index]
+                    content[k] = SLP.decompress_same_args(v, index)
                 elif k == "name":
                     content[k] = \
                             SLP.decompress_names(v, self.raw["name_pattern"], index)
@@ -202,7 +203,7 @@ class MergeEvent(BaseEvent):
                 self.raw["name_pattern"] = pattern
 
             if not is_mergeevent:
-                for key in self.merge_keys:
+                for key in MergeEvent.merge_keys:
                     if key in self.raw:
                         if key == "args":
                             args = e_dict.get("args", {})
@@ -215,7 +216,7 @@ class MergeEvent(BaseEvent):
 
             return
 
-        for key in self.merge_keys:
+        for key in MergeEvent.merge_keys:
             if key in self.raw:
                 if is_mergeevent:
                     if key == "args":
@@ -238,41 +239,16 @@ class MergeEvent(BaseEvent):
         for event in events:
             self._add_event(event)
 
-    def segmented_linear_predictor_compress(self):
-        """Compress the merged event using segmented linear predictor."""
-        # for key in ["ts", "dur", "id"]:
-        #     if key in self.raw:
-        #         val = self.raw.get(key, None)
-        #         self.raw[key] = SegmentedLinearPredictorCompressor.compress(val)
-
-        # if "name" in self.raw:
-        #    val = self.raw.get("name", None)
-        #    self.raw["name"] = [SegmentedLinearPredictorCompressor.compress(v) for v in val]
-
-        # for key in ["args", "ts", "dur", "name", "id"]:
-        #     if key in self.raw:
-        #         val = self.raw.get(key, None)
-        #         self.raw[key] = None
-        #         if key == "ts":
-        #             self.raw[key] = len(val)
-        # names = self.raw.get("name", [])
-        # result = SegmentedLinearPredictorCompressor.compress_names(names)
-        # if result is None:
-        #     if len(names[0]) > 0:
-        #         nums = []
-        #         for name in names:
-        #             nums.append(name[0])
-        #         self.raw["name"] = self._format_name(self.raw["name_pattern"], nums)
-        #     else:
-        #         self.raw["name"] = self.raw["name_pattern"]
-        # else:
-        #     self.raw["name"] = result
+    def compress_values(self):
+        """Compress the merged event."""
 
         self.raw["name"], self.raw["name_pattern"] = \
             SLP.compress_names(self.raw["name"], self.raw["name_pattern"])
 
         # self.raw["args"] = {k: [] for k in self.raw.get("args", {})}
         # self.raw["args"] = {}
+        if "args" in self.raw:
+            SLP.compress_same_args(self.raw["args"])
         # self.raw["ts"] = [len(self.raw.get("ts", []))]
         # self.raw["dur"] = []
 
@@ -291,6 +267,5 @@ class MergeEvent(BaseEvent):
 
         obj = cls.__new__(cls)
         obj.raw = raw.copy()
-        obj.merge_keys = ["ts", "dur", "id", "args", "name"]
 
         return obj

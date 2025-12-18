@@ -238,6 +238,11 @@ class TemplateNode(BaseNode):
         self.children : List[Union[TemplateNode, RefNode]] = []
         self.node_count = sum(n.get_node_count() for n in nodes)
 
+        self.ev_idxs = None
+        self.external_ids = None
+        self.sequence_ids = None
+        self.correlations = None
+
         event_count = len(nodes[0].events)
         for n in nodes[1:]:
             assert len(n.events) == event_count, \
@@ -359,18 +364,129 @@ class TemplateNode(BaseNode):
 
         return True
 
-    def segmented_linear_predictor_compress(self):
-        """Compress this node using segmented linear predictor."""
+    def compress_event_values(self):
+        """Compress event values."""
         for e in self.events:
-            e.segmented_linear_predictor_compress()
+            e.compress_values()
         for c in self.children:
-            c.segmented_linear_predictor_compress()
+            c.compress_event_values()
+
+    def check_args_id_same_detla(self,
+                             external_ids: Optional[List[int]] = None,
+                             ev_idxs: Optional[List[int]] = None
+        ) -> bool:
+        """Check if args_id has the same delta."""
+
+        for e in self.events:
+            args = e.get_args()
+            if "External id" in args:
+                e_external_ids = args["External id"]
+                if external_ids is None:
+                    self.external_ids = e_external_ids
+                    external_ids = e_external_ids
+                else:
+                    if not self._all_same_detla(external_ids, e_external_ids):
+                        return False
+            if "Ev Idx" in args:
+                e_ev_idxs = args["Ev Idx"]
+                if external_ids is None:
+                    self.ev_idxs = e_ev_idxs
+                    ev_idxs = e_ev_idxs
+                else:
+                    if not self._all_same_detla(ev_idxs, e_ev_idxs):
+                        return False
+
+        for c in self.children:
+            if not c.check_args_id_same_detla(external_ids, ev_idxs):
+                return False
+
+        return True
+
+    def try_compress_args_id(self,
+                             external_ids: Optional[List[int]] = None,
+                             ev_idxs: Optional[List[int]] = None,
+                             sequence_ids: Optional[List[int]] = None,
+                             correlations: Optional[List[int]] = None
+        ) -> None:
+        """Try to compress args_id."""
+
+        for e in self.events:
+            e_args = e.get_args()
+            if "External id" in e_args:
+                e_external_ids = e_args["External id"]
+                if external_ids is None:
+                    self.external_ids = e_external_ids
+                    external_ids = e_external_ids
+                    e_args["External id"] = 0
+                else:
+                    if self._all_same_detla(external_ids, e_external_ids):
+                        e_args["External id"] = e_external_ids[0] - external_ids[0]
+
+            if "Ev Idx" in e_args:
+                e_ev_idxs = e_args["Ev Idx"]
+                if ev_idxs is None:
+                    self.ev_idxs = e_ev_idxs
+                    ev_idxs = e_ev_idxs
+                    e_args["Ev Idx"] = 0
+                else:
+                    if self._all_same_detla(ev_idxs, e_ev_idxs):
+                        e_args["Ev Idx"] = e_ev_idxs[0] - ev_idxs[0]
+
+            if "Sequence number" in e_args:
+                e_sequence_ids = e_args["Sequence number"]
+                if sequence_ids is None:
+                    self.sequence_ids = e_sequence_ids
+                    sequence_ids = e_sequence_ids
+                    e_args["Sequence number"] = 0
+                else:
+                    if self._all_same_detla(sequence_ids, e_sequence_ids):
+                        e_args["Sequence number"] = e_sequence_ids[0] - sequence_ids[0]
+
+            if "correlation" in e_args:
+                e_correlations = e_args["correlation"]
+                if correlations is None:
+                    self.correlations = e_correlations
+                    correlations = e_correlations
+                    e_args["correlation"] = 0
+                else:
+                    if self._all_same_detla(correlations, e_correlations):
+                        e_args["correlation"] = e_correlations[0] - correlations[0]
+
+        for c in self.children:
+            if isinstance(c, TemplateNode):
+                c.try_compress_args_id(external_ids, ev_idxs, sequence_ids)
+
+
+    def _all_same_detla(self, a: List[int], b: List[int]) -> bool:
+        if len(a) != len(b):
+            return False
+
+        delta = a[0] - b[0]
+        for i in range(1, len(a)):
+            if a[i] - b[i] != delta:
+                return False
+
+        return True
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        res = {
             "events": [e.to_dict() for e in self.events],
             "children": [c.to_dict() for c in self.children]
         }
+
+        if self.external_ids is not None:
+            res["external_ids"] = self.external_ids
+
+        if self.ev_idxs is not None:
+            res["ev_idxs"] = self.ev_idxs
+
+        if self.sequence_ids is not None:
+            res["sequence_ids"] = self.sequence_ids
+
+        if self.correlations is not None:
+            res["correlations"] = self.correlations
+
+        return res
 
     @classmethod
     def from_dict(cls, data: Dict, templates_dict: Dict[int, Any] | None = None,
@@ -379,6 +495,14 @@ class TemplateNode(BaseNode):
         assert "children" in data, "TemplateNode must have children."
         obj = cls.__new__(cls)
         obj.events = [MergeEvent.from_dict(e) for e in data["events"]]
+        if "external_ids" in data:
+            obj.external_ids = data["external_ids"]
+        if "ev_idxs" in data:
+            obj.ev_idxs = data["ev_idxs"]
+        if "sequence_ids" in data:
+            obj.sequence_ids = data["sequence_ids"]
+        if "correlations" in data:
+            obj.correlations = data["correlations"]
         obj.children = []
         for c in data["children"]:
             if "ref_node_id" in c:
@@ -438,8 +562,8 @@ class RefNode(BaseNode):
     def get_node_count(self) -> int:
         return self.ref.get_node_count()
 
-    def segmented_linear_predictor_compress(self):
-        """Compress this node using segmented linear predictor."""
+    def compress_event_values(self):
+        """Compress event values."""
         return
 
     def to_dict(self) -> Dict:
@@ -522,8 +646,8 @@ class GroupRefNode(BaseNode):
     def get_node_count(self) -> int:
         return sum(r.get_node_count() for r in self.ref)
 
-    def segmented_linear_predictor_compress(self):
-        """Compress this node using segmented linear predictor."""
+    def compress_event_values(self):
+        """Compress event values."""
         return
 
     def to_dict(self) -> Dict:
