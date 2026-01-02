@@ -9,8 +9,26 @@ A FlowNode is a node in a flow graph.
 
 from abc import ABC, abstractmethod
 
+class Parameter(ABC):
+    def __init__(self, name: str, dtype: str, shape: tuple = None, value=None, trainable: bool = False):
+        """
+        :param name: The name or identifier of the parameter.
+        :param dtype: The data type of the parameter (e.g., 'float32', 'int64').
+        :param shape: The shape of the parameter (e.g., (3, 3) for a 3x3 matrix).
+        :param value: The actual value of the parameter.
+        :param trainable: Whether the parameter is trainable (default: False).
+        """
+        self.name = name
+        self.dtype = dtype
+        self.shape = shape
+        self.value = value
+        self.trainable = trainable
+
+    def __repr__(self):
+        return f"Parameter(name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable})"
+
 class FlowNode(ABC):
-    def __init__(self, name, id, inputs, outputs):
+    def __init__(self, name: str, id: str, inputs: list[Parameter], outputs: list[Parameter]):
         self.m_name = name
         self.m_id = id
         self.m_inputs = inputs
@@ -19,16 +37,16 @@ class FlowNode(ABC):
     def __str__(self):
         return f"FlowNode({self.m_name})"
 
-    def set_inputs(self, inputs):
+    def set_inputs(self, inputs: list[Parameter]):
         self.m_inputs = inputs
 
-    def set_outputs(self, outputs):
+    def set_outputs(self, outputs: list[Parameter]):
         self.m_outputs = outputs
 
-    def get_inputs(self):
+    def get_inputs(self) -> list[Parameter]:
         return self.m_inputs
 
-    def get_outputs(self):
+    def get_outputs(self) -> list[Parameter]:
         return self.m_outputs
 
     # @abstractmethod

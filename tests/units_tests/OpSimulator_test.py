@@ -1,0 +1,80 @@
+'''
+test OpSimulator classes
+'''
+
+import pytest
+
+from perflowai.core.device import DeviceConfig, DeviceType
+from perflowai.workflow.flow import Parameter
+from perflowai.simulator.oprt.oprt_simulator import GEMMOpSimulator, AttentionOpSimulator, Conv2dOpSimulator, SoftmaxOpSimulator
+
+
+def _device():
+    # memory_bandwidth is documented as GB/s in DeviceConfig
+    return DeviceConfig(id=0, type=DeviceType.GPU, memory_capacity=80_000, memory_bandwidth=1000.0, compute_flops=100e12)
+
+
+def test_gemm_simulate_ok():
+    a = Parameter(name='A', dtype='float16', shape=(128, 64))
+    b = Parameter(name='B', dtype='float16', shape=(64, 256))
+    sim = GEMMOpSimulator(_device(), a=a, b=b)
+    r = sim.simulate().to_dict()
+    assert r['flops'] == 2 * 128 * 256 * 64
+    assert r['peak_memory_bytes'] > 0
+    assert r['achieved_flops_per_s'] > 0
+    assert sim.get_memory_size_bytes() == sim.peak_memory_bytes()
+
+
+def test_gemm_validation_mismatch_k():
+    a = Parameter(name='A', dtype='float16', shape=(128, 63))
+    b = Parameter(name='B', dtype='float16', shape=(64, 256))
+    with pytest.raises(ValueError):
+        GEMMOpSimulator(_device(), a=a, b=b)
+
+
+def test_attention_simulate_ok():
+    q = Parameter(name='Q', dtype='float16', shape=(2, 128, 256))
+    k = Parameter(name='K', dtype='float16', shape=(2, 128, 256))
+    v = Parameter(name='V', dtype='float16', shape=(2, 128, 256))
+    sim = AttentionOpSimulator(_device(), q=q, k=k, v=v, num_heads=8)
+    r = sim.simulate().to_dict()
+    assert r['flops'] == 4 * 2 * 8 * 128 * 128 * (256 // 8)
+    assert r['peak_memory_bytes'] > 0
+
+
+def test_attention_validation_heads_divisible():
+    q = Parameter(name='Q', dtype='float16', shape=(2, 128, 255))
+    k = Parameter(name='K', dtype='float16', shape=(2, 128, 255))
+    v = Parameter(name='V', dtype='float16', shape=(2, 128, 255))
+    with pytest.raises(ValueError):
+        AttentionOpSimulator(_device(), q=q, k=k, v=v, num_heads=8)
+
+
+def test_conv2d_simulate_ok():
+    x = Parameter(name='X', dtype='float16', shape=(1, 64, 56, 56))
+    w = Parameter(name='W', dtype='float16', shape=(128, 64, 3, 3))
+    sim = Conv2dOpSimulator(_device(), x=x, w=w, stride=1, padding=1)
+    r = sim.simulate().to_dict()
+    assert r['flops'] == 2 * 1 * 128 * 56 * 56 * 64 * 3 * 3
+    assert r['peak_memory_bytes'] > 0
+
+
+def test_softmax_simulate_ok():
+    x = Parameter(name='X', dtype='float16', shape=(2, 4, 8))
+    sim = SoftmaxOpSimulator(_device(), x=x, axis=-1)
+    r = sim.simulate().to_dict()
+    # groups = 2*4=8, n=8 => flops = groups*(4n-2)
+    assert r['flops'] == 8 * (4 * 8 - 2)
+    assert r['peak_memory_bytes'] > 0
+
+
+def test_softmax_validation_axis_oob():
+    x = Parameter(name='X', dtype='float16', shape=(2, 4, 8))
+    with pytest.raises(ValueError):
+        SoftmaxOpSimulator(_device(), x=x, axis=3)
+
+
+def test_softmax_validation_dtype():
+    x = Parameter(name='X', dtype='int32', shape=(2, 4, 8))
+    with pytest.raises(ValueError):
+        SoftmaxOpSimulator(_device(), x=x, axis=-1)
