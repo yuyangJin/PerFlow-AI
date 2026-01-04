@@ -7,25 +7,79 @@
 A FlowNode is a node in a flow graph.
 '''
 
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-class Parameter(ABC):
-    def __init__(self, name: str, dtype: str, shape: tuple = None, value=None, trainable: bool = False):
+from abc import ABC
+from typing import Any, Optional
+
+
+class Parameter:
+    """A flexible value descriptor passed between FlowNodes.
+
+    Historically, `Parameter` was used primarily for operator-level simulation
+    (shape/dtype driven). For graph-level / parallel-level simulation, we also
+    need to attach placement and sharding semantics without forcing those
+    concepts into the operator simulator.
+
+    Compatibility:
+    - The original constructor args (name/dtype/shape/value/trainable) are kept.
+    - Additional optional fields are provided via keyword args.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        dtype: str,
+        shape: Optional[tuple[int, ...]] = None,
+        value: Any = None,
+        trainable: bool = False,
+        *,
+        kind: str = "tensor",
+        meta: Optional[dict[str, Any]] = None,
+        placement: Any = None,
+        sharding: Any = None,
+        **extra_meta: Any,
+    ):
+        """Create a Parameter.
+
+        Args:
+            name: Identifier of the value (e.g., "Q", "weight", "kv_cache").
+            dtype: Data type name (kept as a string; see perflowai.util.tensor).
+            shape: Tensor shape, when applicable.
+            value: Optional concrete value.
+            trainable: Whether this value is trainable (e.g., weights).
+            kind: Semantic kind (e.g., "tensor", "activation", "weight", "grad", "control", "input", "output", etc). // TODO: define enum?
+            meta: Arbitrary metadata for graph-/parallel-level simulation. // TODO: define class?
+            placement: Optional placement info (device/stage/rank/etc.). // TODO: define enum?
+            sharding: Optional sharding info (tp/dp/pp partitioning, layouts, etc.).
+            **extra_meta: Convenience for adding extra metadata keys.
         """
-        :param name: The name or identifier of the parameter.
-        :param dtype: The data type of the parameter (e.g., 'float32', 'int64').
-        :param shape: The shape of the parameter (e.g., (3, 3) for a 3x3 matrix).
-        :param value: The actual value of the parameter.
-        :param trainable: Whether the parameter is trainable (default: False).
-        """
-        self.name = name
-        self.dtype = dtype
+
+        self.name = str(name)
+        self.dtype = str(dtype)
         self.shape = shape
         self.value = value
-        self.trainable = trainable
+        self.trainable = bool(trainable)
 
-    def __repr__(self):
-        return f"Parameter(name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable})"
+        self.kind = str(kind)
+        self.placement = placement
+        self.sharding = sharding
+
+        self.meta: dict[str, Any] = dict(meta) if meta is not None else {}
+        if extra_meta:
+            self.meta.update(extra_meta)
+
+    def get_meta(self, key: str, default: Any = None) -> Any:
+        return self.meta.get(key, default)
+
+    def set_meta(self, key: str, value: Any) -> None:
+        self.meta[key] = value
+
+    def __repr__(self) -> str:
+        core = f"name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable}, kind={self.kind}"
+        if self.placement is None and self.sharding is None and not self.meta:
+            return f"Parameter({core})"
+        return f"Parameter({core}, placement={self.placement}, sharding={self.sharding}, meta_keys={sorted(self.meta.keys())})"
 
 class FlowNode(ABC):
     def __init__(self, name: str, id: str, inputs: list[Parameter], outputs: list[Parameter]):
@@ -114,5 +168,5 @@ class FlowGraph:
         # for node_id in self.m_nodes:
         #     traverse(node_id)
 
-        for node in self.nodes:
+        for node in self.m_nodes.values():
             node.run(*args, **kwargs)
