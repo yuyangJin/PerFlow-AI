@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from perflowai.workflow.flow import Parameter
-
 from .checks import _require
 
 

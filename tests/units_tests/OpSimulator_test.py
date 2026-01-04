@@ -5,8 +5,7 @@ test OpSimulator classes
 import pytest
 
 from perflowai.core.device import DeviceConfig, DeviceType
-from perflowai.workflow.flow import Parameter
-from perflowai.simulator.oprt.oprt_simulator import GEMMOpSimulator, AttentionOpSimulator, Conv2dOpSimulator, SoftmaxOpSimulator
+from perflowai.simulator.oprt.oprt_simulator import GEMMOpSimulator, AttentionOpSimulator, Conv2dOpSimulator, Parameter, SoftmaxOpSimulator
 
 
 def _device():

@@ -20,7 +20,27 @@ from perflowai.core import DeviceConfig
 from perflowai.util.checks import require
 from perflowai.util.tensor import is_floating_dtype, numel, tensor_bytes
 from perflowai.util.units import bandwidth_Bps
-from perflowai.workflow.flow import FlowNode, Parameter
+from perflowai.workflow.flow import FlowNode
+
+
+
+class Parameter(ABC):
+    def __init__(self, name: str, dtype: str, shape: tuple = None, value=None, trainable: bool = False):
+        """
+        :param name: The name or identifier of the parameter.
+        :param dtype: The data type of the parameter (e.g., 'float32', 'int64').
+        :param shape: The shape of the parameter (e.g., (3, 3) for a 3x3 matrix).
+        :param value: The actual value of the parameter.
+        :param trainable: Whether the parameter is trainable (default: False).
+        """
+        self.name = name
+        self.dtype = dtype
+        self.shape = shape
+        self.value = value
+        self.trainable = trainable
+
+    def __repr__(self):
+        return f"Parameter(name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable})"
 
 @dataclass(frozen=True)
 class OpSimulationResult:

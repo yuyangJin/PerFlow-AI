@@ -12,77 +12,8 @@ A FlowNode is a node in a flow graph.
 from abc import ABC
 from typing import Any, Optional
 
-
-class Parameter:
-    """A flexible value descriptor passed between FlowNodes.
-
-    Historically, `Parameter` was used primarily for operator-level simulation
-    (shape/dtype driven). For graph-level / parallel-level simulation, we also
-    need to attach placement and sharding semantics without forcing those
-    concepts into the operator simulator.
-
-    Compatibility:
-    - The original constructor args (name/dtype/shape/value/trainable) are kept.
-    - Additional optional fields are provided via keyword args.
-    """
-
-    def __init__(
-        self,
-        name: str,
-        dtype: str,
-        shape: Optional[tuple[int, ...]] = None,
-        value: Any = None,
-        trainable: bool = False,
-        *,
-        kind: str = "tensor",
-        meta: Optional[dict[str, Any]] = None,
-        placement: Any = None,
-        sharding: Any = None,
-        **extra_meta: Any,
-    ):
-        """Create a Parameter.
-
-        Args:
-            name: Identifier of the value (e.g., "Q", "weight", "kv_cache").
-            dtype: Data type name (kept as a string; see perflowai.util.tensor).
-            shape: Tensor shape, when applicable.
-            value: Optional concrete value.
-            trainable: Whether this value is trainable (e.g., weights).
-            kind: Semantic kind (e.g., "tensor", "activation", "weight", "grad", "control", "input", "output", etc). // TODO: define enum?
-            meta: Arbitrary metadata for graph-/parallel-level simulation. // TODO: define class?
-            placement: Optional placement info (device/stage/rank/etc.). // TODO: define enum?
-            sharding: Optional sharding info (tp/dp/pp partitioning, layouts, etc.).
-            **extra_meta: Convenience for adding extra metadata keys.
-        """
-
-        self.name = str(name)
-        self.dtype = str(dtype)
-        self.shape = shape
-        self.value = value
-        self.trainable = bool(trainable)
-
-        self.kind = str(kind)
-        self.placement = placement
-        self.sharding = sharding
-
-        self.meta: dict[str, Any] = dict(meta) if meta is not None else {}
-        if extra_meta:
-            self.meta.update(extra_meta)
-
-    def get_meta(self, key: str, default: Any = None) -> Any:
-        return self.meta.get(key, default)
-
-    def set_meta(self, key: str, value: Any) -> None:
-        self.meta[key] = value
-
-    def __repr__(self) -> str:
-        core = f"name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable}, kind={self.kind}"
-        if self.placement is None and self.sharding is None and not self.meta:
-            return f"Parameter({core})"
-        return f"Parameter({core}, placement={self.placement}, sharding={self.sharding}, meta_keys={sorted(self.meta.keys())})"
-
 class FlowNode(ABC):
-    def __init__(self, name: str, id: str, inputs: list[Parameter], outputs: list[Parameter]):
+    def __init__(self, name, id, inputs, outputs):
         self.m_name = name
         self.m_id = id
         self.m_inputs = inputs
@@ -91,27 +22,22 @@ class FlowNode(ABC):
     def __str__(self):
         return f"FlowNode({self.m_name})"
 
-    def set_inputs(self, inputs: list[Parameter]):
+    def set_inputs(self, inputs):
         self.m_inputs = inputs
 
-    def set_outputs(self, outputs: list[Parameter]):
+    def set_outputs(self, outputs):
         self.m_outputs = outputs
 
-    def get_inputs(self) -> list[Parameter]:
+    def get_inputs(self):
         return self.m_inputs
 
-    def get_outputs(self) -> list[Parameter]:
+    def get_outputs(self):
         return self.m_outputs
 
     # @abstractmethod
     def run(self):
         print('FlowNode runs virtially.')
         pass
-
-'''
-@class FlowGraph
-A FlowGraph is a diagram of tasks.
-'''
 
 class FlowGraph:
     def __init__(self):
