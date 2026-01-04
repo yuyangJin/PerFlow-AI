@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 '''
 @module workflow
 '''
@@ -6,8 +8,6 @@
 @class FlowNode
 A FlowNode is a node in a flow graph.
 '''
-
-from __future__ import annotations
 
 from abc import ABC
 from typing import Any, Optional
