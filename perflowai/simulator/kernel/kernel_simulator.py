@@ -1,4 +1,4 @@
-"""perflowai.simulator.kernel.oprt_simulator
+"""perflowai.simulator.kernel.kernel_simulator
 
 Operator-level simulators.
 
@@ -14,16 +14,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Callable, Iterable, Optional
+from typing import Callable, Optional
 
 from perflowai.core import DeviceConfig
 from perflowai.util.checks import require
-from perflowai.util.tensor import is_floating_dtype, numel, tensor_bytes
+from perflowai.util.tensor import is_floating_dtype, numel, dtype_bytes
 from perflowai.util.units import bandwidth_Bps
 from perflowai.workflow.flow import FlowNode
 
 
-class Parameter(ABC):
+class Parameter:
     def __init__(self, name: str, dtype: str, shape: tuple = None, value=None, trainable: bool = False):
         """
         :param name: The name or identifier of the parameter.
@@ -40,6 +40,11 @@ class Parameter(ABC):
 
     def __repr__(self):
         return f"Parameter(name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable})"
+
+    def get_size(self) -> int:
+        require(self.shape is not None, f"Parameter '{self.name}' must have shape")
+        require(isinstance(self.shape, tuple), f"Parameter '{self.name}' shape must be tuple, got {type(self.shape)}")
+        return numel(self.shape) * dtype_bytes(self.dtype)
 
 
 @dataclass(frozen=True)
@@ -77,7 +82,7 @@ class BaseKernelSimulator(FlowNode, ABC):
             device_config: DeviceConfig,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
+            workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         """
         :param compute_coeff: device_config.compute_flops is scaled by this factor to model efficiency.
@@ -91,7 +96,7 @@ class BaseKernelSimulator(FlowNode, ABC):
         self.compute_coeff = float(compute_coeff)
         self.memory_coeff = float(memory_coeff)
         self.workload_aspect = workload_aspect
-        self._cached_workload: Workload = None
+        self._cached_workload: Optional[Workload] = None
         self._validate_common()
         self.validate_parameters()
 
@@ -191,7 +196,7 @@ class GEMMKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
+            workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         outputs = [c] if c is not None else []
         super().__init__(
@@ -231,8 +236,8 @@ class GEMMKernelSimulator(BaseKernelSimulator):
         else:
             c = Parameter(name="C", dtype=a.dtype, shape=(m, n))
 
-        bytes_accessed = tensor_bytes(a) + tensor_bytes(b) + tensor_bytes(c)
-        peak_bytes = tensor_bytes(a) + tensor_bytes(b) + tensor_bytes(c)
+        bytes_accessed = a.get_size() + b.get_size() + c.get_size()
+        peak_bytes = a.get_size() + b.get_size() + c.get_size()
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
@@ -262,7 +267,7 @@ class AttentionKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
+            workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.num_heads = int(num_heads)
         outputs = [o] if o is not None else []
@@ -305,8 +310,8 @@ class AttentionKernelSimulator(BaseKernelSimulator):
         else:
             o = Parameter(name="O", dtype=q.dtype, shape=(b, s, d))
 
-        bytes_accessed = tensor_bytes(q) + tensor_bytes(k) + tensor_bytes(v) + tensor_bytes(o)
-        peak_bytes = tensor_bytes(q) + tensor_bytes(k) + tensor_bytes(v) + tensor_bytes(o)
+        bytes_accessed = q.get_size() + k.get_size() + v.get_size() + o.get_size()
+        peak_bytes = q.get_size() + k.get_size() + v.get_size() + o.get_size()
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
@@ -332,7 +337,7 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
+            workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.stride = int(stride)
         self.padding = int(padding)
@@ -389,8 +394,8 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
         else:
             y = Parameter(name="Y", dtype=x.dtype, shape=(n, c_out, h_out, w_out))
 
-        bytes_accessed = tensor_bytes(x) + tensor_bytes(w) + tensor_bytes(y)
-        peak_bytes = tensor_bytes(x) + tensor_bytes(w) + tensor_bytes(y)
+        bytes_accessed = x.get_size() + w.get_size() + y.get_size()
+        peak_bytes = x.get_size() + w.get_size() + y.get_size()
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
@@ -417,7 +422,7 @@ Notes:
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
+            workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.axis = int(axis)
         outputs = [y] if y is not None else []
@@ -471,8 +476,8 @@ Notes:
         # => ~ (4n - 2)
         flops = groups * (4 * n - 2)
 
-        x_bytes = int(tensor_bytes(x))
-        y_bytes = int(tensor_bytes(y))
+        x_bytes = x.get_size()
+        y_bytes = y.get_size()
         require(x_bytes == y_bytes, "Softmax assumes output dtype/shape matches input")
 
         # Memory access model (heuristic):

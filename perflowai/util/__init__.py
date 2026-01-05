@@ -5,11 +5,9 @@ This module re-exports the convenience helpers from the `checks`, `tensor`,
 and `units` modules so callers can `from perflowai.util import ...`.
 """
 
-from .checks import *
-from .tensor import *
-from .units import *
+from . import checks as _checks, tensor as _tensor, units as _units
 
 __all__ = []
-__all__ += getattr(__import__(__name__, fromlist=["checks"]).checks, "__all__", [])
-__all__ += getattr(__import__(__name__, fromlist=["tensor"]).tensor, "__all__", [])
-__all__ += getattr(__import__(__name__, fromlist=["units"]).units, "__all__", [])
+__all__ += getattr(_checks, "__all__", [])
+__all__ += getattr(_tensor, "__all__", [])
+__all__ += getattr(_units, "__all__", [])

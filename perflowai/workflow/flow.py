@@ -10,7 +10,6 @@ A FlowNode is a node in a flow graph.
 '''
 
 from abc import ABC
-from typing import Any, Optional
 
 class FlowNode(ABC):
     def __init__(self, name, id, inputs, outputs):

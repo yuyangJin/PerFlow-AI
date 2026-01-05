@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from perflowai.core import DeviceConfig
 from perflowai.simulator.kernel.kernel_simulator import Parameter
 from perflowai.util.checks import require
-from perflowai.util.tensor import dtype_bytes, numel, tensor_bytes
+from perflowai.util.tensor import dtype_bytes, numel
 from perflowai.util.units import inter_node_bandwidth_Bps, intra_node_bandwidth_Bps
 from perflowai.workflow.flow import FlowNode
 
@@ -212,7 +212,7 @@ class AllGatherNetworkSimulator(BaseNetworkSimulator):
 
     def _workload(self) -> tuple[int, int]:
         x = self.m_inputs[0]
-        bpr = tensor_bytes(x)
+        bpr = x.get_size()
         total = bpr * self.group_size
         return bpr, total
 
@@ -279,7 +279,7 @@ class AllReduceNetworkSimulator(BaseNetworkSimulator):
 
     def _workload(self) -> tuple[int, int]:
         x = self.m_inputs[0]
-        bpr = tensor_bytes(x)
+        bpr = x.get_size()
         total = bpr * self.group_size
         return bpr, total
 

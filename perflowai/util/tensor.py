@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .checks import _require
 
+__all__ = ['dtype_bytes', 'is_floating_dtype', 'numel']
 
 def _normalize_dtype_name(dtype: str) -> str:
     return str(dtype).strip().lower().replace("_", "")
@@ -66,8 +67,3 @@ def numel(shape: tuple[int, ...]) -> int:
         n *= d
     return n
 
-
-def tensor_bytes(p: Parameter) -> int:
-    _require(p.shape is not None, f"Parameter '{p.name}' must have shape")
-    _require(isinstance(p.shape, tuple), f"Parameter '{p.name}' shape must be tuple, got {type(p.shape)}")
-    return numel(p.shape) * dtype_bytes(p.dtype)
