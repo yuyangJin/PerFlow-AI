@@ -57,6 +57,11 @@ class OpSimulationResult:
     def to_dict(self) -> dict:
         return asdict(self)
 
+@dataclass(frozen=True)
+class Workload:
+    flops: int
+    bytes_accessed: int
+    peak_memory_bytes: int
 
 class BaseOpSimulator(FlowNode, ABC):
     """Base class for operator simulators driven by Parameters."""
@@ -70,12 +75,21 @@ class BaseOpSimulator(FlowNode, ABC):
         device_config: DeviceConfig,
         compute_coeff: float = 0.6,
         memory_coeff: float = 0.8,
+        workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
+        """
+        :param compute_coeff: device_config.compute_flops is scaled by this factor to model efficiency.
+        :param memory_coeff: device_config.memory_bandwidth is scaled by this factor to model efficiency.
+        :param workload_aspect: A function that takes a Workload and returns a modified Workload.
+
+        final workload = workload_aspect(base workload) if workload_aspect is provided.
+        """
         super().__init__(name=name, id=id, inputs=inputs, outputs=outputs)
         self.m_device_config = device_config
         self.compute_coeff = float(compute_coeff)
         self.memory_coeff = float(memory_coeff)
-        self._cached_workload: Optional[tuple[int, int, int]] = None
+        self.workload_aspect = workload_aspect
+        self._cached_workload: Workload = None
         self._validate_common()
         self.validate_parameters()
 
@@ -93,20 +107,25 @@ class BaseOpSimulator(FlowNode, ABC):
     def _workload(self) -> tuple[int, int, int]:
         """Return (flops, bytes_accessed, peak_memory_bytes)."""
 
-    def workload(self) -> tuple[int, int, int]:
+    def workload(self) -> Workload:
         if self._cached_workload is None:
             flops, bytes_accessed, peak_bytes = self._workload()
-            self._cached_workload = (int(flops), int(bytes_accessed), int(peak_bytes))
+            if self.workload_aspect is not None:
+                modified = self.workload_aspect(Workload(flops, bytes_accessed, peak_bytes))
+                flops = modified.flops
+                bytes_accessed = modified.bytes_accessed
+                peak_bytes = modified.peak_memory_bytes
+            self._cached_workload = Workload(flops, bytes_accessed, peak_bytes)
         return self._cached_workload
 
     def flops(self) -> int:
-        return self.workload()[0]
+        return self.workload().flops
 
     def bytes_accessed(self) -> int:
-        return self.workload()[1]
+        return self.workload().bytes_accessed
 
     def peak_memory_bytes(self) -> int:
-        return self.workload()[2]
+        return self.workload().peak_memory_bytes
 
     # Backward/ergonomic aliases
     def get_memory_size_bytes(self) -> int:
@@ -125,7 +144,10 @@ class BaseOpSimulator(FlowNode, ABC):
         Returns an OpSimulationResult with achieved FLOP/s and peak memory.
         """
 
-        flops, bytes_accessed, peak_bytes = self.workload()
+        workload = self.workload()
+        flops = workload.flops
+        bytes_accessed = workload.bytes_accessed
+        peak_bytes = workload.peak_memory_bytes
 
         compute_time = float(flops) / (float(self.m_device_config.compute_flops) * self.compute_coeff)
         memory_time = float(bytes_accessed) / (bandwidth_Bps(self.m_device_config) * self.memory_coeff)
@@ -167,6 +189,7 @@ class GEMMOpSimulator(BaseOpSimulator):
         id: int = 0,
         compute_coeff: float = 0.6,
         memory_coeff: float = 0.8,
+        workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         outputs = [c] if c is not None else []
         super().__init__(
@@ -177,6 +200,7 @@ class GEMMOpSimulator(BaseOpSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            workload_aspect=workload_aspect,
         )
 
     def validate_parameters(self) -> None:
@@ -236,6 +260,7 @@ class AttentionOpSimulator(BaseOpSimulator):
         id: int = 0,
         compute_coeff: float = 0.6,
         memory_coeff: float = 0.8,
+        workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.num_heads = int(num_heads)
         outputs = [o] if o is not None else []
@@ -247,6 +272,7 @@ class AttentionOpSimulator(BaseOpSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            workload_aspect=workload_aspect,
         )
 
     def validate_parameters(self) -> None:
@@ -303,6 +329,7 @@ class Conv2dOpSimulator(BaseOpSimulator):
         id: int = 0,
         compute_coeff: float = 0.6,
         memory_coeff: float = 0.8,
+        workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.stride = int(stride)
         self.padding = int(padding)
@@ -316,6 +343,7 @@ class Conv2dOpSimulator(BaseOpSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            workload_aspect=workload_aspect,
         )
 
     def _infer_out_hw(self, h: int, w: int, k_h: int, k_w: int) -> tuple[int, int]:
@@ -386,6 +414,7 @@ Notes:
         id: int = 0,
         compute_coeff: float = 0.6,
         memory_coeff: float = 0.8,
+        workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.axis = int(axis)
         outputs = [y] if y is not None else []
@@ -397,6 +426,7 @@ Notes:
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            workload_aspect=workload_aspect,
         )
 
     def validate_parameters(self) -> None:
