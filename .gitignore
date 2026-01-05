@@ -16,3 +16,4 @@ sdist/
 # mypy
 .mypy_cache/
 .idea/
+.vscode/
