@@ -82,7 +82,7 @@ def test_softmax_validation_dtype():
 def test_gemm_with_workload_aspect():
     a = Parameter(name='A', dtype='float16', shape=(128, 64))
     b = Parameter(name='B', dtype='float16', shape=(64, 256))
-    def modify_workload(workload):
+    def modify_workload(simulator, workload):
         return Workload(flops=workload.flops // 2, bytes_accessed=workload.bytes_accessed, peak_memory_bytes=workload.peak_memory_bytes)
     sim = GEMMKernelSimulator(_device(), a=a, b=b, workload_aspect=modify_workload)
     r = sim.simulate().to_dict()
@@ -93,7 +93,7 @@ def test_attention_with_workload_aspect():
     q = Parameter(name='Q', dtype='float16', shape=(2, 128, 256))
     k = Parameter(name='K', dtype='float16', shape=(2, 128, 256))
     v = Parameter(name='V', dtype='float16', shape=(2, 128, 256))
-    def modify_workload(workload):
+    def modify_workload(simulator, workload):
         return Workload(flops=workload.flops // 2, bytes_accessed=workload.bytes_accessed, peak_memory_bytes=workload.peak_memory_bytes)
     sim = AttentionKernelSimulator(_device(), q=q, k=k, v=v, num_heads=8, workload_aspect=modify_workload)
     r = sim.simulate().to_dict()
@@ -103,7 +103,7 @@ def test_attention_with_workload_aspect():
 def test_conv2d_with_workload_aspect():
     x = Parameter(name='X', dtype='float16', shape=(1, 64, 56, 56))
     w = Parameter(name='W', dtype='float16', shape=(128, 64, 3, 3))
-    def modify_workload(workload):
+    def modify_workload(simulator, workload):
         return Workload(flops=workload.flops // 2, bytes_accessed=workload.bytes_accessed, peak_memory_bytes=workload.peak_memory_bytes)
     sim = Conv2dKernelSimulator(_device(), x=x, w=w, stride=1, padding=1, workload_aspect=modify_workload)
     r = sim.simulate().to_dict()
@@ -112,7 +112,7 @@ def test_conv2d_with_workload_aspect():
 
 def test_softmax_with_workload_aspect():
     x = Parameter(name='X', dtype='float16', shape=(2, 4, 8))
-    def modify_workload(workload):
+    def modify_workload(simulator, workload):
         return Workload(flops=workload.flops // 2, bytes_accessed=workload.bytes_accessed, peak_memory_bytes=workload.peak_memory_bytes)
     sim = SoftmaxKernelSimulator(_device(), x=x, axis=-1, workload_aspect=modify_workload)
     r = sim.simulate().to_dict()

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from perflowai.core import DeviceConfig
 from perflowai.util.checks import require
@@ -77,14 +77,14 @@ class BaseKernelSimulator(FlowNode, ABC):
             device_config: DeviceConfig,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-            workload_aspect: Optional[callable[[Workload], Workload]] = None,
+                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         """
         :param compute_coeff: device_config.compute_flops is scaled by this factor to model efficiency.
         :param memory_coeff: device_config.memory_bandwidth is scaled by this factor to model efficiency.
-        :param workload_aspect: A function that takes a Workload and returns a modified Workload.
+        :param workload_aspect: A function that takes (simulator, workload) and returns a modified Workload.
 
-        final workload = workload_aspect(base workload) if workload_aspect is provided.
+        final workload = workload_aspect(simulator, base workload) if workload_aspect is provided.
         """
         super().__init__(name=name, id=id, inputs=inputs, outputs=outputs)
         self.m_device_config = device_config
@@ -113,7 +113,7 @@ class BaseKernelSimulator(FlowNode, ABC):
         if self._cached_workload is None:
             flops, bytes_accessed, peak_bytes = self._workload()
             if self.workload_aspect is not None:
-                modified = self.workload_aspect(Workload(flops, bytes_accessed, peak_bytes))
+                modified = self.workload_aspect(self, Workload(flops, bytes_accessed, peak_bytes))
                 flops = modified.flops
                 bytes_accessed = modified.bytes_accessed
                 peak_bytes = modified.peak_memory_bytes
@@ -191,7 +191,7 @@ class GEMMKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-            workload_aspect: Optional[callable[[Workload], Workload]] = None,
+                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         outputs = [c] if c is not None else []
         super().__init__(
@@ -262,7 +262,7 @@ class AttentionKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-            workload_aspect: Optional[callable[[Workload], Workload]] = None,
+                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.num_heads = int(num_heads)
         outputs = [o] if o is not None else []
@@ -332,7 +332,7 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-            workload_aspect: Optional[callable[[Workload], Workload]] = None,
+                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.stride = int(stride)
         self.padding = int(padding)
@@ -417,7 +417,7 @@ Notes:
             id: int = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
-            workload_aspect: Optional[callable[[Workload], Workload]] = None,
+                workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.axis = int(axis)
         outputs = [y] if y is not None else []
