@@ -13,169 +13,140 @@ from __future__ import annotations
 from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
+import numpy as np
 from .slp import SegmentedLinearPredictorCompressor as SLP
-from .utils import logger
+from .utils import logger, to_json_safe
 
-class BaseEvent(ABC):
+def is_same_event(e1: Union[Event, MergeEvent], e2: Union[Event, MergeEvent], debug: bool = False) -> bool:
     """
-    Abstract base class for all trace events.
-
-    This class defines the minimal interface that all event types must
-    implement.
+    Compare two events for structural similarity.
     """
 
-    def __init__(self, raw: Dict[str, Any] | None = None):
-        self.raw: Dict[str, Any] = raw or {}
+    name1 = re.sub(r"\d+", "", e1.get_name())
+    name2 = re.sub(r"\d+", "", e2.get_name())
+    if name1 != name2:
+        if debug:
+            logger.debug("Name mismatch: %s vs %s", name1, name2)
+        return False
 
-    @abstractmethod
-    def get_name(self) -> str:
-        """Get the name of the event."""
-        return "unknown"
+    if e1.cat != e2.cat:
+        if debug:
+            logger.debug("Category mismatch: %s vs %s", e1.cat, e2.cat)
+        return False
 
-    def get_ts(self) -> int:
-        """Get the timestamp of the event."""
-        return self.raw.get("ts", 0)
+    if e1.bp != e2.bp:
+        if debug:
+            logger.debug("Branchpoint mismatch: %s vs %s", e1.bp, e2.bp)
+        return False
 
-    def get_dur(self) -> int:
-        """Get the duration of the event."""
-        return self.raw.get("dur", 0)
+    if e1.s != e2.s:
+        if debug:
+            logger.debug("Stack depth mismatch: %s vs %s", e1.s, e2.s)
+        return False
 
-    def get_args(self) -> Dict[str, Any]:
-        """Get the arguments of the event."""
-        return self.raw.get("args", {})
-
-    def __getitem__(self, key: str) -> Any:
-        """
-        Allows dictionary-like access to the internal raw data (self.raw).
-        
-        Example: event_instance['pid']
-        """
-        return self.raw[key]
-
-    def is_same_event(self, other: BaseEvent, debug: bool = False) -> bool:
-        """Check if the event is the same as another event."""
-        if not isinstance(other, BaseEvent):
-            return False
-
-        name1 = re.sub(r"\d+", "", self.get_name())
-        name2 = re.sub(r"\d+", "", other.get_name())
-        if name1!= name2:
+    if e1.args is not None or e2.args is not None:
+        if not (e1.args is not None and e2.args is not None):
             if debug:
-                logger.debug(f"Name mismatch: {name1} vs {name2}")
+                logger.debug("One event has args while the other doesn't")
             return False
 
-        ignore_keys = {"ts", "dur", "id", "args", "name_pattern"}
-
-        if self.raw.keys() - {"name_pattern"} != other.to_dict().keys() - {"name_pattern"}:
+        if not set(e1.args.keys()) == set(e2.args.keys()):
             if debug:
-                logger.debug(f"Keys mismatch: {self.raw.keys()} vs {other.to_dict().keys()}")
+                logger.debug("Argument keys mismatch: %s vs %s", e1.args.keys(), e2.args.keys())
             return False
 
-        for key, val in self.raw.items():
-            if key in ignore_keys or key == "name":
-                continue
-
-            other_val = other.to_dict().get(key, None)
-            if val != other_val:
-                if debug:
-                    logger.debug(f"Value mismatch: {key} = {val} vs {key} = {other_val}")
-                return False
-
-        args1 = self.raw.get("args", {})
-        args2 = other.to_dict().get("args", {})
-
-        # if not self.is_same_structure(args1, args2):
-        if not set(args1.keys()) == set(args2.keys()):
-            if debug:
-                logger.debug(f"Args mismatch: {set(args1.keys())} vs {set(args2.keys())}")
-            return False
-
-        return True
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize the event to a dictionary."""
-        return self.raw
-
-    @abstractmethod
-    def is_merged(self) -> bool:
-        """Check if the event is a merged event."""
-        return True
-
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, raw: Dict[str, Any]) -> BaseEvent:
-        """Deserialize the event from a dictionary."""
-        return cls()
+    return True
 
 
-class Event(BaseEvent):
+class Event:
     """
     Standard event implementation.
     """
+    __slots__ = ("name", "ts", "cat", "args", "dur", "id", "bp", "s")
+
+    def __init__(self, raw: Dict[str, Any]):
+        # 必定存在的字段
+        self.name = raw.get("name", "unknown")
+        self.ts = raw.get("ts", 0)
+        self.cat = raw.get("cat", None)
+
+        # 可选字段
+        self.args = raw.get("args", None)
+        self.dur  = raw.get("dur", None)
+        self.id   = raw.get("id", None)
+        self.bp   = raw.get("bp", None)
+        self.s    = raw.get("s", None)
 
     def get_name(self) -> str:
-        return self.raw.get("name", "unknown")
-
-    def is_merged(self) -> bool:
-        return False
+        return self.name
 
     def to_dict(self) -> Dict[str, Any]:
-        return self.raw
+        res = {}
+        res["name"] = self.name
+        res["ts"] = self.ts
+        if self.cat is not None:
+            res["cat"] = self.cat
+        if self.args is not None:
+            res["args"] = self.args
+        if self.dur is not None:
+            res["dur"] = self.dur
+        if self.id is not None:
+            res["id"] = self.id
+        if self.bp is not None:
+            res["bp"] = self.bp
+        if self.s is not None:
+            res["s"] = self.s
+        return res
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> Event:
         return cls(raw)
 
 
-class MergeEvent(BaseEvent):
+class MergeEvent:
     """
     Merged event representation.
-
-    This class represents a collection of events that are structurally
-    similar and can be merged into a single event. The events are grouped
-    based on a set of keys (`merge_keys`) that are used to compare and merge
-    the events. The resulting merged event is represented as a dictionary
-    with the merged values for each key.
     """
-    merge_keys = ["ts", "dur", "id", "args", "name"]
+    # __slots__ = ("ts", "cat", "args", "dur", "id", "bp", "s",
+    #              "name_pattern", "name_nums")
 
-    def __init__(self, events: List[BaseEvent] | None = None):
-        super().__init__()
+    def __init__(self, events):
+
+        self.ts = []
+        self.cat: str = None
+        self.args: Dict[str, List[Any]] = None
+        self.dur = []
+        self.id = []
+        self.bp: str = None
+        self.s: str = None
+
+        self.name_pattern: str = None
+        self.name_nums: List[str] = []
 
         if events:
             self.add_events(events)
 
     def get_name(self) -> str:
-        return self.raw.get("name_pattern", "unknown")
-
-    def is_merged(self) -> bool:
-        return True
+        return self.name_pattern
 
     def get_len(self) -> int:
         """Get the number of events in the merged event."""
-        return len(self.raw.get("ts", []))
+        return len(self.ts)
 
     def get_event_by_index(self, index: int) -> Event:
         """Get the event at the specified index."""
 
-        content = {}
-        for k, v in self.raw.items():
-            if k == "name_pattern":
-                continue
-            elif k in MergeEvent.merge_keys:
-                if k == "args":
-                    content[k] = SLP.decompress_same_args(v, index)
-                elif k == "name":
-                    content[k] = \
-                            SLP.decompress_names(v, self.raw["name_pattern"], index)
-                else:
-                    content[k] = v[index]
-            else:
-                content[k] = v
+        event = Event({})
+        event.ts = SLP.decompress_linear_segment(self.ts, index)
+        event.name = SLP.decompress_names(self.name_nums, self.name_pattern, index)
+        event.cat = self.cat
+        event.args = SLP.decompress_same_args(self.args, index)
+        event.dur = SLP.decompress_linear_segment(self.dur, index)
+        event.id = SLP.decompress_linear_segment(self.id, index)
+        event.bp = self.bp
+        event.s = self.s
 
-        # content["name"] = self._format_name(name_pattern, content.get("name", []))
-
-        return Event(content)
+        return event
 
     def _parse_name(self, name: str):
         nums = [x for x in re.findall(r"\d+", name)]
@@ -186,86 +157,115 @@ class MergeEvent(BaseEvent):
         it = iter(nums)
         return re.sub(r"0", lambda _: str(next(it)), pattern)
 
-    def _add_event(self, event: Union[Event, MergeEvent]):
-        e_dict = event.to_dict().copy()
-        is_mergeevent = isinstance(event, MergeEvent)
-        pattern = ""
+    def _add_single_event(self, e: Event):
+        pat, nums = self._parse_name(e.name)
 
-        if not is_mergeevent:
-            name = e_dict.get("name", None)
-            assert name is not None, "name should not be None"
-            pattern, nums = self._parse_name(name)
-            e_dict["name"] = nums
+        if self.name_pattern is None:
+            self.name_pattern = pat
 
-        if not self.raw:
-            self.raw = e_dict.copy()
-            if "name_pattern" not in self.raw:
-                self.raw["name_pattern"] = pattern
+        self.name_nums.append(nums)
 
-            if not is_mergeevent:
-                for key in MergeEvent.merge_keys:
-                    if key in self.raw:
-                        if key == "args":
-                            args = e_dict.get("args", {})
-                            new_args = {}
-                            for k, v in args.items():
-                                new_args[k] = [v]
-                            self.raw[key] = new_args
-                        else:
-                            self.raw[key] = [e_dict.get(key, None)]
+        self.ts.append(e.ts)
+        self.cat = e.cat
+        if e.dur is not None:
+            self.dur.append(e.dur)
+        if e.id is not None:
+            self.id.append(e.id)
+        self.bp = e.bp
+        self.s = e.s
 
-            return
+        if e.args is not None:
+            if not self.args:
+                self.args = {}
+                for k, v in e.args.items():
+                    self.args[k] = [v]
+                return
 
-        for key in MergeEvent.merge_keys:
-            if key in self.raw:
-                if is_mergeevent:
-                    if key == "args":
-                        new_args = e_dict.get("args", {})
-                        for k in self.raw[key].keys():
-                            self.raw[key][k].extend(new_args.get(k, []))
-                    else:
-                        self.raw[key].extend(e_dict.get(key, []))
-                else:
-                    if key == "args":
-                        args = e_dict.get("args", {})
-                        for k in self.raw[key].keys():
-                            self.raw[key][k].append(args.get(k, None))
-                    else:
-                        self.raw[key].append(e_dict.get(key, None))
+            for k in self.args.keys():
+                self.args[k].append(e.args[k])
+
+    def _add_merged_event(self, e: MergeEvent):
+
+        self.ts.extend(e.ts)
+        self.cat = e.cat
+        self.dur.extend(e.dur)
+        self.id.extend(e.id)
+        self.bp = e.bp
+        self.s = e.s
+
+        self.name_nums.extend(e.name_nums)
+        self.name_pattern = e.name_pattern
+
+        if e.args is not None:
+            if not self.args:
+                self.args = e.args.copy()
+                return
+
+            for k in self.args.keys():
+                self.args[k].extend(e.args[k])
 
 
     def add_events(self, events: List[Union[Event, MergeEvent]]):
         """Add a list of events to the merged event."""
         for event in events:
-            self._add_event(event)
+            if isinstance(event, Event):
+                self._add_single_event(event)
+            else:
+                self._add_merged_event(event)
 
     def compress_values(self):
         """Compress the merged event."""
 
-        self.raw["name"], self.raw["name_pattern"] = \
-            SLP.compress_names(self.raw["name"], self.raw["name_pattern"])
+        self.name_nums, self.name_pattern = \
+            SLP.compress_names(self.name_nums, self.name_pattern)
 
-        # self.raw["args"] = {k: [] for k in self.raw.get("args", {})}
-        # self.raw["args"] = {}
-        if "args" in self.raw:
-            SLP.compress_same_args(self.raw["args"])
-        # self.raw["ts"] = [len(self.raw.get("ts", []))]
-        # self.raw["dur"] = []
+        if self.args is not None:
+            SLP.compress_same_args(self.args)
 
-        # args = self.raw.get("args", {})
-        # for key, val in args.items():
-        #     if isinstance(val, list):
-        #         logger.info(f"Compressing args {key}")
-        #         args[key] = SegmentedLinearPredictorCompressor.compress_ids(val)
+        self.ts = SLP.segment_linear_compress(self.ts)
 
-        # self.raw["args"] = args
+        if len(self.dur) > 0:
+            self.dur = SLP.segment_linear_compress(self.dur)
+
+        # if len(self.id) > 0:
+        #     self.id = SLP.compress_tss(self.id)
+
         return
+
+
+    def to_dict(self) -> Dict[str, Any]:
+        res = {}
+        res["name_pattern"] = self.name_pattern
+        res["name"] = self.name_nums
+        res["ts"] = to_json_safe(self.ts)
+
+        if len(self.dur) > 0:
+            res["dur"] = to_json_safe(self.dur)
+        if self.cat is not None:
+            res["cat"] = self.cat
+        if self.args:
+            res["args"] = to_json_safe(self.args)
+        if len(self.id) > 0:
+            res["id"] = to_json_safe(self.id)
+        if self.bp is not None:
+            res["bp"] = self.bp
+        if self.s is not None:
+            res["s"] = self.s
+        return res
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> MergeEvent:
         assert "name_pattern" in raw, "name_pattern should be in raw"
 
         obj = cls.__new__(cls)
-        obj.raw = raw.copy()
+        obj.name_pattern = raw["name_pattern"]
+        obj.name_nums = raw.get("name", [])
+        obj.ts = np.asarray(raw.get("ts", []), dtype=np.int64)
+        obj.dur = np.asarray(raw.get("dur", []), dtype=np.int64)
+        obj.cat = raw.get("cat", None)
+        obj.args = raw.get("args", None)
+        obj.id = np.asarray(raw.get("id", []), dtype=np.int64)
+        obj.bp = raw.get("bp", None)
+        obj.s = raw.get("s", None)
 
         return obj

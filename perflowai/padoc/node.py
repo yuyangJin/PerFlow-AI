@@ -17,7 +17,7 @@ using a unified API.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union, Any, Optional, Generator
-from .event import BaseEvent, Event, MergeEvent
+from .event import Event, MergeEvent, is_same_event
 from .utils import logger
 
 
@@ -40,7 +40,7 @@ class BaseNode(ABC):
         return []
 
     @abstractmethod
-    def get_all_events(self) -> List[BaseEvent]:
+    def get_all_events(self):
         """Get a list of all events in this node and its children."""
         return []
 
@@ -161,7 +161,7 @@ class Node(BaseNode):
             return False
 
         for i, event in enumerate(self.events):
-            if not event.is_same_event(other.get_events()[i], debug):
+            if not is_same_event(event, other.get_events()[i], debug):
                 if debug:
                     logger.debug("%s Node is_same_node: Different event: %s vs %s",
                                  ind, event, other.get_events()[i])
@@ -173,10 +173,12 @@ class Node(BaseNode):
                              ind, len(self.children), len(other.get_children()))
                 for i in range(len(other.get_children())):
                     if i < len(self.children):
-                        logger.debug("%s Node is_same_node: %s",
+                        logger.debug("%s Node is_same_node: %s %s %s",
                                      ind, \
                                      self.children[i].get_first_event_name() == \
-                                        other.get_children()[i].get_first_event_name())
+                                        other.get_children()[i].get_first_event_name(), \
+                                             self.children[i].get_first_event_name(), \
+                                                 other.get_children()[i].get_first_event_name())
                     else:
                         logger.debug("%s Node is_same_node: %s",
                                      ind, other.get_children()[i].get_first_event_name())
@@ -287,7 +289,7 @@ class TemplateNode(BaseNode):
     def get_events(self) -> List[MergeEvent]:
         return self.events
 
-    def get_all_events(self) -> List[BaseEvent]:
+    def get_all_events(self) -> List[Any]:
         all_events = self.events.copy()
         for child in self.children:
             all_events.extend(child.get_all_events())
@@ -343,7 +345,7 @@ class TemplateNode(BaseNode):
             return False
 
         for i, event in enumerate(self.events):
-            if not event.is_same_event(other.get_events()[i], debug):
+            if not is_same_event(event, other.get_events()[i], debug):
                 if debug:
                     logger.debug("TemplateNode is_same_node: Different event: %s vs %s",
                                  event, other.get_events()[i])
@@ -411,7 +413,7 @@ class TemplateNode(BaseNode):
         """Try to compress args_id."""
 
         for e in self.events:
-            e_args = e.get_args()
+            e_args = e.args
             if "External id" in e_args:
                 e_external_ids = e_args["External id"]
                 if external_ids is None:
@@ -536,10 +538,10 @@ class RefNode(BaseNode):
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         return False
 
-    def get_events(self) -> List[BaseEvent]:
+    def get_events(self) -> List[Event]:
         return self.ref.get_events_by_index(self.index)
 
-    def get_all_events(self, index: Optional[int] = None) -> List[BaseEvent]:
+    def get_all_events(self, index: Optional[int] = None) -> List[Event]:
         if index is not None:
             return self.ref.get_events_by_index(self.index + index)
         return self.ref.get_events_by_index(self.index)
@@ -611,13 +613,13 @@ class GroupRefNode(BaseNode):
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         return False
 
-    def get_events(self) -> List[BaseEvent]:
+    def get_events(self) -> List[Event]:
         results = []
         for r in self.ref:
             results.extend(r.get_events_by_index(self.index))
         return results
 
-    def get_all_events(self, index: Optional[int] = None) -> List[BaseEvent]:
+    def get_all_events(self, index: Optional[int] = None) -> List[Event]:
         results = []
         if index is not None:
             for r, i in zip(self.ref, self.index):

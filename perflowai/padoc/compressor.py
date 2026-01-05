@@ -239,7 +239,11 @@ class TemplateCompressor(Compressor):
         return node
 
     def _build_call_tree(self, node: Node) -> Tuple[Node, Optional[Node]]:
-        events = sorted(node.events, key=lambda e: e.get_ts())
+        events = sorted(
+            node.events,
+            key=lambda e: (e.ts, -e.dur if e.dur is not None else 0)
+        )
+
 
         roots: List[Node] = []
         stack: List[Node] = []
@@ -249,7 +253,7 @@ class TemplateCompressor(Compressor):
         for e in events:
             while stack:
                 top_event = stack[-1].events[0]
-                if top_event.get_ts() + top_event.get_dur() <= e.get_ts() and e.get_dur() > 0:
+                if top_event.ts + top_event.dur <= e.ts and e.dur > 0:
                     stack.pop()
                 else:
                     break
@@ -258,7 +262,7 @@ class TemplateCompressor(Compressor):
 
             if stack:
                 top_event = stack[-1].events[0]
-                if top_event.get_ts() + top_event.get_dur() < e.get_ts() + e.get_dur():
+                if top_event.ts + top_event.dur < e.ts + e.dur:
                     abnormal_root.add_child(new_node)
                     continue
                 else:
@@ -304,7 +308,9 @@ class TemplateCompressor(Compressor):
                 if used[j]:
                     continue
 
-                debug_flag = False
+                debug_flag = "SCH-forward_step" in children[i].get_first_event_name() and "SCH-forward_step" in children[j].get_first_event_name()
+                if debug_flag:
+                    print(f"{debug_flag} {children[i].get_first_event_name()} {children[j].get_first_event_name()}")
                 check_start_time = time.time()
                 is_same = children[i].is_same_node(children[j], debug_flag)
                 self.check_same_node_time += time.time() - check_start_time

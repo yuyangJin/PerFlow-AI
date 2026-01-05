@@ -219,8 +219,6 @@ class Trace(BaseTrace):
 
                                 event_dict["tid"] = t
                                 event_dict["ph"]  = ph
-                                event_dict["name"] = e.get_name()
-                                event_dict["ts"]  = e.get_ts()
                                 trace_events.append(event_dict)
 
             trace_events = sorted(
@@ -308,8 +306,10 @@ class CompressedTrace(BaseTrace):
     def compress_templates_values(self) -> None:
         """Compress the values of templates."""
         for node in self.templates.values():
+            # node.try_compress_args_id()
             node.compress_event_values()
-            node.try_compress_args_id()
+
+        # self.ranks = {}
 
     @classmethod
     def from_file(cls, path: str) -> CompressedTrace:

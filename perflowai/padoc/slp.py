@@ -2,7 +2,51 @@ from typing import List, Dict, Any, Optional, Tuple, Union
 import bisect
 import numpy as np
 import re
+import math
+import io
+import struct
+from itertools import product
 from .utils import logger
+
+def fit_integer_linear(
+    y: np.ndarray,
+    res_min_allowed: int,
+    res_max_allowed: int
+) -> Optional[Tuple[int, int]]:
+    """
+    整数线性拟合 y ≈ a*x + b，x=0..n-1。
+    返回最佳整数 a, b，使最大残差绝对值最小，
+    并且所有残差在 [res_min_allowed, res_max_allowed]。
+    如果没有可行解返回 None。
+    """
+    n = len(y)
+    x = np.arange(n, dtype=np.float64)
+
+    # 浮点最小二乘解
+    a = np.vstack([x, np.ones(n)]).T
+    a_f, b_f = np.linalg.lstsq(a, y, rcond=None)[0]
+
+    # 枚举四种整数组合
+    a_candidates = [int(np.floor(a_f)), int(np.ceil(a_f))]
+    b_candidates = [int(np.floor(b_f)), int(np.ceil(b_f))]
+
+    best_a, best_b = None, None
+    best_score = float('inf')
+
+    for a, b in product(a_candidates, b_candidates):
+        pred = a * x + b
+        res = y - pred
+        if res.min() < res_min_allowed or res.max() > res_max_allowed:
+            continue
+        score = max(abs(res.min()), abs(res.max()))
+        if score < best_score:
+            best_score = score
+            best_a, best_b = a, b
+
+    if best_a is None:
+        return None
+    return best_a, best_b
+
 
 class SegmentedLinearPredictorCompressor:
 
@@ -48,14 +92,21 @@ class SegmentedLinearPredictorCompressor:
         """
 
         for key, value in args.items():
+            if not isinstance(value, list):
+                continue
             if cls._all_same_args(value):
                 args[key] = [value[0]]
+            elif isinstance(value[0], int):
+                args[key] = cls.compress_tss(value)
 
     @classmethod
     def decompress_same_args(cls, args: Dict[str, List[Any]], index: int) \
         -> Dict[str, Any]:
         """Decompress arguments that are the same for all examples.
         """
+
+        if args is None:
+            return None
 
         result = {}
         for key, value in args.items():
@@ -65,6 +116,76 @@ class SegmentedLinearPredictorCompressor:
                 result[key] = value[index]
 
         return result
+    
+    @classmethod
+    def segment_linear_compress(cls, array: List[int]) -> Union[np.ndarray, Dict[str, Any]]:
+        return np.asarray(array, dtype=np.int64)
+    
+    @classmethod
+    def decompress_linear_segment(cls, compressed_array: Union[np.ndarray, Dict[str, Any]], index: int) -> int:
+        if isinstance(compressed_array, np.ndarray):
+            if compressed_array.size == 0:
+                return None
+            return int(compressed_array[index])
+        else:
+            logger.error(f"Not finished")
+
+    @classmethod
+    def compress_tss(cls, tss: List[int]) -> Dict[str, Any]:
+        ts = np.asarray(tss, dtype=np.int64)
+        return ts
+        n = len(ts)
+
+        baseline_bytes = n * 8
+        precisions = [
+            ("int8", -128, 127, 1),
+            ("int16", -32768, 32767, 2),
+            ("int32", -2147483648, 2147483647, 4)
+        ]
+
+        best_total_bytes = baseline_bytes
+        best_segments = None
+
+        for dtype, res_min, res_max, dtype_bytes in precisions:
+            segments = []
+            total_bytes = 0
+            i = 0
+            while i < n:
+                # 尽量延长 segment
+                last_fit = None
+                for j in range(i+1, n+1):
+                    seg = ts[i:j]
+                    ab = fit_integer_linear(seg, res_min, res_max)
+                    if ab is not None:
+                        last_fit = (j, ab)
+                    else:
+                        break
+                if last_fit is None:
+                    # fallback 单点
+                    j = i + 1
+                    a, b = 0, int(ts[i])
+                    residuals = np.array([0], dtype=np.int64)
+                else:
+                    j, (a, b) = last_fit
+                    seg = ts[i:j]
+                    pred = a * np.arange(len(seg), dtype=np.int64) + b
+                    residuals = seg - pred
+                    residuals = residuals.astype({1: np.int8, 2: np.int16, 4: np.int32}[dtype_bytes])
+
+                metadata_bytes = 4+4+8+8  # start+length+a+b
+                total_bytes += metadata_bytes + dtype_bytes * len(residuals)
+                segments.append((i, j-i, a, b, residuals))
+                i = j
+
+            if total_bytes < best_total_bytes:
+                # logger.info("succ, %d -> %d %s", baseline_bytes, total_bytes, dtype)
+                best_total_bytes = total_bytes
+                best_segments = segments
+
+        if best_segments is None:
+            return np.asarray(tss, dtype=np.int64)
+        return best_segments
+
 
     @classmethod
     def _all_same_args(cls, args: List[Any]) -> bool:

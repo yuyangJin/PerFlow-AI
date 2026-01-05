@@ -4,15 +4,15 @@
 import heapq
 from typing import List, Generator, Tuple, Dict
 from .trace import BaseTrace
-from .event import BaseEvent, Event
+from .event import Event
 
 class StreamMergedEventsIterator:
     """TODO
     """
 
     def __init__(self, trace: BaseTrace, rank: str):
-        self.priority_queue: List[Tuple[int, str, BaseEvent]] = []
-        self.streams: List[Generator[BaseEvent, None, None]] = []
+        self.priority_queue: List[Tuple[int, str, Event]] = []
+        self.streams: List[Generator[Event, None, None]] = []
         self.index_dict: Dict[str, int] = {}
         self.rank = rank
 
