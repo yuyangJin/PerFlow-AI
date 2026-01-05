@@ -1,4 +1,4 @@
-"""perflowai.simulator.oprt.oprt_simulator
+"""perflowai.simulator.kernel.oprt_simulator
 
 Operator-level simulators.
 
@@ -23,7 +23,6 @@ from perflowai.util.units import bandwidth_Bps
 from perflowai.workflow.flow import FlowNode
 
 
-
 class Parameter(ABC):
     def __init__(self, name: str, dtype: str, shape: tuple = None, value=None, trainable: bool = False):
         """
@@ -42,8 +41,9 @@ class Parameter(ABC):
     def __repr__(self):
         return f"Parameter(name={self.name}, dtype={self.dtype}, shape={self.shape}, trainable={self.trainable})"
 
+
 @dataclass(frozen=True)
-class OpSimulationResult:
+class KernelSimulationResult:
     flops: int
     bytes_accessed: int
     peak_memory_bytes: int
@@ -57,25 +57,27 @@ class OpSimulationResult:
     def to_dict(self) -> dict:
         return asdict(self)
 
+
 @dataclass(frozen=True)
 class Workload:
     flops: int
     bytes_accessed: int
     peak_memory_bytes: int
 
-class BaseOpSimulator(FlowNode, ABC):
+
+class BaseKernelSimulator(FlowNode, ABC):
     """Base class for operator simulators driven by Parameters."""
 
     def __init__(
-        self,
-        name: str,
-        id: int,
-        inputs: list[Parameter],
-        outputs: list[Parameter],
-        device_config: DeviceConfig,
-        compute_coeff: float = 0.6,
-        memory_coeff: float = 0.8,
-        workload_aspect: Optional[callable[[Workload], Workload]] = None,
+            self,
+            name: str,
+            id: int,
+            inputs: list[Parameter],
+            outputs: list[Parameter],
+            device_config: DeviceConfig,
+            compute_coeff: float = 0.6,
+            memory_coeff: float = 0.8,
+            workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         """
         :param compute_coeff: device_config.compute_flops is scaled by this factor to model efficiency.
@@ -94,10 +96,10 @@ class BaseOpSimulator(FlowNode, ABC):
         self.validate_parameters()
 
     def _validate_common(self) -> None:
-       require(self.compute_coeff > 0.0, "compute_coeff must be > 0")
-       require(self.memory_coeff > 0.0, "memory_coeff must be > 0")
-       require(self.m_device_config.compute_flops > 0, "device_config.compute_flops must be > 0")
-       require(self.m_device_config.memory_bandwidth > 0, "device_config.memory_bandwidth must be > 0")
+        require(self.compute_coeff > 0.0, "compute_coeff must be > 0")
+        require(self.memory_coeff > 0.0, "memory_coeff must be > 0")
+        require(self.m_device_config.compute_flops > 0, "device_config.compute_flops must be > 0")
+        require(self.m_device_config.memory_bandwidth > 0, "device_config.memory_bandwidth must be > 0")
 
     @abstractmethod
     def validate_parameters(self) -> None:
@@ -138,10 +140,10 @@ class BaseOpSimulator(FlowNode, ABC):
 
         return self.peak_memory_bytes()
 
-    def simulate(self) -> OpSimulationResult:
+    def simulate(self) -> KernelSimulationResult:
         """Simulate performance based on device peak compute/bandwidth.
 
-        Returns an OpSimulationResult with achieved FLOP/s and peak memory.
+        Returns an KernelSimulationResult with achieved FLOP/s and peak memory.
         """
 
         workload = self.workload()
@@ -157,7 +159,7 @@ class BaseOpSimulator(FlowNode, ABC):
         achieved_flops = float(flops) / time_s if time_s > 0 else 0.0
         achieved_bw = float(bytes_accessed) / time_s if time_s > 0 else 0.0
 
-        return OpSimulationResult(
+        return KernelSimulationResult(
             flops=int(flops),
             bytes_accessed=int(bytes_accessed),
             peak_memory_bytes=int(peak_bytes),
@@ -170,7 +172,7 @@ class BaseOpSimulator(FlowNode, ABC):
         )
 
 
-class GEMMOpSimulator(BaseOpSimulator):
+class GEMMKernelSimulator(BaseKernelSimulator):
     """GEMM: C = A @ B
 
     Expected:
@@ -179,17 +181,17 @@ class GEMMOpSimulator(BaseOpSimulator):
     """
 
     def __init__(
-        self,
-        device_config: DeviceConfig,
-        a: Parameter,
-        b: Parameter,
-        c: Optional[Parameter] = None,
-        *,
-        name: str = "GEMM",
-        id: int = 0,
-        compute_coeff: float = 0.6,
-        memory_coeff: float = 0.8,
-        workload_aspect: Optional[callable[[Workload], Workload]] = None,
+            self,
+            device_config: DeviceConfig,
+            a: Parameter,
+            b: Parameter,
+            c: Optional[Parameter] = None,
+            *,
+            name: str = "GEMM",
+            id: int = 0,
+            compute_coeff: float = 0.6,
+            memory_coeff: float = 0.8,
+            workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         outputs = [c] if c is not None else []
         super().__init__(
@@ -234,7 +236,7 @@ class GEMMOpSimulator(BaseOpSimulator):
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
-class AttentionOpSimulator(BaseOpSimulator):
+class AttentionKernelSimulator(BaseKernelSimulator):
     """Scaled dot-product attention (simplified).
 
     Expected:
@@ -248,19 +250,19 @@ class AttentionOpSimulator(BaseOpSimulator):
     """
 
     def __init__(
-        self,
-        device_config: DeviceConfig,
-        q: Parameter,
-        k: Parameter,
-        v: Parameter,
-        o: Optional[Parameter] = None,
-        *,
-        num_heads: int,
-        name: str = "Attention",
-        id: int = 0,
-        compute_coeff: float = 0.6,
-        memory_coeff: float = 0.8,
-        workload_aspect: Optional[callable[[Workload], Workload]] = None,
+            self,
+            device_config: DeviceConfig,
+            q: Parameter,
+            k: Parameter,
+            v: Parameter,
+            o: Optional[Parameter] = None,
+            *,
+            num_heads: int,
+            name: str = "Attention",
+            id: int = 0,
+            compute_coeff: float = 0.6,
+            memory_coeff: float = 0.8,
+            workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.num_heads = int(num_heads)
         outputs = [o] if o is not None else []
@@ -279,7 +281,8 @@ class AttentionOpSimulator(BaseOpSimulator):
         require(self.num_heads > 0, "Attention num_heads must be > 0")
         require(len(self.m_inputs) == 3, "Attention requires exactly 3 inputs: Q, K, V")
         q, k, v = self.m_inputs
-        require(q.shape is not None and k.shape is not None and v.shape is not None, "Attention inputs must have shapes")
+        require(q.shape is not None and k.shape is not None and v.shape is not None,
+                "Attention inputs must have shapes")
         require(len(q.shape) == 3, f"Q must be rank-3 (b,s,d), got {q.shape}")
         require(len(k.shape) == 3, f"K must be rank-3 (b,s,d), got {k.shape}")
         require(len(v.shape) == 3, f"V must be rank-3 (b,s,d), got {v.shape}")
@@ -307,7 +310,7 @@ class AttentionOpSimulator(BaseOpSimulator):
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
-class Conv2dOpSimulator(BaseOpSimulator):
+class Conv2dKernelSimulator(BaseKernelSimulator):
     """2D convolution (NCHW), simplified.
 
     Expected:
@@ -316,20 +319,20 @@ class Conv2dOpSimulator(BaseOpSimulator):
     """
 
     def __init__(
-        self,
-        device_config: DeviceConfig,
-        x: Parameter,
-        w: Parameter,
-        y: Optional[Parameter] = None,
-        *,
-        stride: int = 1,
-        padding: int = 0,
-        dilation: int = 1,
-        name: str = "Conv2d",
-        id: int = 0,
-        compute_coeff: float = 0.6,
-        memory_coeff: float = 0.8,
-        workload_aspect: Optional[callable[[Workload], Workload]] = None,
+            self,
+            device_config: DeviceConfig,
+            x: Parameter,
+            w: Parameter,
+            y: Optional[Parameter] = None,
+            *,
+            stride: int = 1,
+            padding: int = 0,
+            dilation: int = 1,
+            name: str = "Conv2d",
+            id: int = 0,
+            compute_coeff: float = 0.6,
+            memory_coeff: float = 0.8,
+            workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.stride = int(stride)
         self.padding = int(padding)
@@ -391,7 +394,7 @@ class Conv2dOpSimulator(BaseOpSimulator):
         return int(flops), int(bytes_accessed), int(peak_bytes)
 
 
-class SoftmaxOpSimulator(BaseOpSimulator):
+class SoftmaxKernelSimulator(BaseKernelSimulator):
     """Softmax over a single axis.
 
 Expected:
@@ -404,17 +407,17 @@ Notes:
 """
 
     def __init__(
-        self,
-        device_config: DeviceConfig,
-        x: Parameter,
-        y: Optional[Parameter] = None,
-        *,
-        axis: int = -1,
-        name: str = "Softmax",
-        id: int = 0,
-        compute_coeff: float = 0.6,
-        memory_coeff: float = 0.8,
-        workload_aspect: Optional[callable[[Workload], Workload]] = None,
+            self,
+            device_config: DeviceConfig,
+            x: Parameter,
+            y: Optional[Parameter] = None,
+            *,
+            axis: int = -1,
+            name: str = "Softmax",
+            id: int = 0,
+            compute_coeff: float = 0.6,
+            memory_coeff: float = 0.8,
+            workload_aspect: Optional[callable[[Workload], Workload]] = None,
     ):
         self.axis = int(axis)
         outputs = [y] if y is not None else []
