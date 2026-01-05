@@ -100,7 +100,7 @@ def Heterogeneous_ZBV_Simulate_Visualize():
 
 ```
 
-The output result is a `trace.svg`:
+The output result is a `output/trace.svg`:
 
 ![img](./examples/heterogeneous_resource_pp/trace.png)
 
