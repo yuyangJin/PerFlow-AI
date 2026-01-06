@@ -223,7 +223,7 @@ class TraceVisualizer(FlowNode):
         draw_info(data_height, 0, exist_type)
         draw_svg_title(data_height + info_height, 0)
 
-        d.save_svg("trace.svg")
+        d.save_svg("output/trace.svg")
 
         if PRINT_DETAIL:
             print("E2E time: ", last_time)

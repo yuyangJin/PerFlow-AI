@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 '''
 @module workflow
 '''
@@ -7,7 +9,7 @@
 A FlowNode is a node in a flow graph.
 '''
 
-from abc import ABC, abstractmethod
+from abc import ABC
 
 class FlowNode(ABC):
     def __init__(self, name, id, inputs, outputs):
@@ -35,11 +37,6 @@ class FlowNode(ABC):
     def run(self):
         print('FlowNode runs virtially.')
         pass
-
-'''
-@class FlowGraph
-A FlowGraph is a diagram of tasks.
-'''
 
 class FlowGraph:
     def __init__(self):
@@ -96,5 +93,5 @@ class FlowGraph:
         # for node_id in self.m_nodes:
         #     traverse(node_id)
 
-        for node in self.nodes:
+        for node in self.m_nodes.values():
             node.run(*args, **kwargs)

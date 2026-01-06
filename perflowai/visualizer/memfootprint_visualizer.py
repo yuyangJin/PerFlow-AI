@@ -36,7 +36,7 @@ class MemoryFootprintVisualizer(FlowNode):
         plt.ylabel('Memory Usage')  
         plt.legend()
         plt.grid()  
-        plt.savefig('memory_footprint.pdf', bbox_inches='tight')  
+        plt.savefig('output/memory_footprint.pdf', bbox_inches='tight')
 
         if PRINT_DETAIL:
             print("base memory: ", base)

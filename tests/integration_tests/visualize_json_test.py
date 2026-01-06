@@ -16,4 +16,4 @@ def test_jsonvisualization():
     trace = output[0]
     visualizer = TraceVisualizer(trace)
     visualizer.visualize()
-    assert os.path.isfile("./trace.svg")
+    assert os.path.isfile("./output/trace.svg")
