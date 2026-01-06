@@ -402,14 +402,14 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
 class SoftmaxKernelSimulator(BaseKernelSimulator):
     """Softmax over a single axis.
 
-Expected:
-- inputs:  X(...)
-- outputs: Y(same shape) (optional)
+    Expected:
+    - inputs:  X(...)
+    - outputs: Y(same shape) (optional)
 
-Notes:
-- This is a *cost model*. exp/div are not true FLOPs on real hardware; we use a
-  simple per-element approximation to get a stable relative estimate.
-"""
+    Notes:
+    - This is a *cost model*. exp/div are not true FLOPs on real hardware; we use a
+    simple per-element approximation to get a stable relative estimate.
+    """
 
     def __init__(
             self,
