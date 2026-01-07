@@ -46,6 +46,10 @@ class Parameter:
         require(isinstance(self.shape, tuple), f"Parameter '{self.name}' shape must be tuple, got {type(self.shape)}")
         return numel(self.shape) * dtype_bytes(self.dtype)
 
+    @property
+    def id(self):
+        return self.name
+
 
 @dataclass(frozen=True)
 class KernelSimulationResult:
