@@ -33,6 +33,10 @@ class FlowNode(ABC):
     def get_outputs(self):
         return self.m_outputs
 
+    @property
+    def id(self):
+        return self.m_id
+
     # @abstractmethod
     def run(self):
         print('FlowNode runs virtially.')

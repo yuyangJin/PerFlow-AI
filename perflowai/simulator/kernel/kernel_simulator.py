@@ -80,7 +80,7 @@ class BaseKernelSimulator(FlowNode, ABC):
     def __init__(
             self,
             name: str,
-            id: int,
+            id: int | str,
             inputs: list[Parameter],
             outputs: list[Parameter],
             device_config: DeviceConfig,

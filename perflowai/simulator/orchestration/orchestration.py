@@ -1,8 +1,10 @@
+from idlelib.pyparse import ParseMap
 from typing import List, Union
 
 from perflowai import FlowNode
 from perflowai.core.device import NodeConfig, DeviceConfig, DeviceType
 from perflowai.simulator.kernel.kernel_simulator import Parameter
+from perflowai.simulator.orchestration.op import FreeSimulator, MallocSimulator
 
 
 class DeviceInstance:
@@ -21,9 +23,9 @@ class DeviceInstance:
                 return parameter
         return None
 
-    def remove_parameter(self, id: int):
+    def remove_parameter(self, parameter: Parameter):
         self.holding_parameter = [
-            parameter for parameter in self.holding_parameter if parameter.id != id
+            it for it in self.holding_parameter if parameter.id != it.id
         ]
 
     @property
@@ -88,12 +90,63 @@ class Assignment:
         self.device_id = device_id
 
 
+def check_node_id_unique(nodes: List[NodeInstance]):
+    ids = set()
+    for n in nodes:
+        if n.id in ids:
+            raise ValueError(f"Duplicate NodeInstance id found: '{n.id}'")
+        ids.add(n.id)
+
+        for g in n.gpu_devices:
+            if g.id in ids:
+                raise ValueError(f"Duplicate DeviceInstance id found: '{g.id}'")
+            ids.add(g.id)
+
+
+def check_task_id_unique(tasks):
+    task_ids = set()
+    workload_ids = set()
+    for t in tasks:
+        if t.id in task_ids:
+            raise ValueError(f"Duplicate Task id found: '{t.id}'")
+        task_ids.add(t.id)
+
+        if t.workload.id in workload_ids:
+            raise ValueError(f"Duplicate Workload id found: '{t.workload.id}'")
+        workload_ids.add(t.workload.id)
+
+
+def is_memory_exists(device: DeviceInstance, t: Task):
+    mems = t.workload.get_inputs() + t.workload.get_outputs()
+    for mem in mems:
+        if device.get_parameter(mem.id) is None:
+            return False
+    return True
+
+
+def check_memory_exists(device: DeviceInstance, t: Task):
+    if not is_memory_exists(device, t):
+        raise ValueError(f"Device {device.id} does not have parameter {mem.id} required by task {t.id}")
+
+
+def check_device_capacity(device: DeviceInstance, t: Task):
+    total_mem = sum(p.get_size() for p in device.holding_parameter)
+    mems = t.workload.get_inputs() + t.workload.get_outputs()
+    req_mem = sum(mem.get_size() for mem in mems)
+    if total_mem + req_mem > device.config.memory_capacity * 1024 * 1024:
+        raise ValueError(f"Device {device.id} exceeds memory capacity when running task {t.id}: "
+                         f"holding {total_mem} + required {req_mem} > capacity {device.config.memory_capacity_bytes}")
+
+
 class OrchestrationResult:
     def __init__(self,
                  nodes: List[NodeInstance],
                  tasks: List[Task],
                  assignments: List[Assignment]
                  ):
+        check_node_id_unique(nodes)
+        check_task_id_unique(tasks)
+
         for assignment in assignments:
             if not any(t.id == assignment.task_id for t in tasks):
                 raise ValueError(f"Assignment references unknown task_id '{assignment.task_id}'")
@@ -110,6 +163,15 @@ class OrchestrationResult:
 
     def device_by_task_id(self) -> dict[str, Union[int, str]]:
         return {a.task_id: a.device_id for a in self.assignments}
+
+    def get_device_by_device_id(self, device_id: Union[int, str]) -> DeviceInstance:
+        for n in self.nodes:
+            if n.host.id == device_id:
+                return n.host
+            for gpu in n.gpu_devices:
+                if gpu.id == device_id:
+                    return gpu
+        raise ValueError(f"Device with id '{device_id}' not found in orchestration result.")
 
     def estimate_makespan_s(self) -> float:
         """Estimate end-to-end runtime (makespan) from an OrchestrationResult.
@@ -165,8 +227,33 @@ class OrchestrationResult:
                 dep_ready_time = max(earliest_finish[d] for d in t.run_after)
 
             dev = device_of[tid]
+            device = self.get_device_by_device_id(dev)
+
             dev_ready_time = float(device_available.get(dev, 0.0))
             start = max(dep_ready_time, dev_ready_time)
+
+            if isinstance(t.workload, FreeSimulator):
+                inputs = t.workload.get_inputs()
+                for mem in inputs:
+                    device.remove_parameter(mem)
+            if isinstance(t.workload, MallocSimulator):
+                outputs = t.workload.get_outputs()
+                for mem in outputs:
+                    device.add_parameter(mem)
+
+            check_device_capacity(device, t)
+
+            if isinstance(t.workload, FreeSimulator):
+                exists = is_memory_exists(device, t)
+                if exists:
+                    raise ValueError(f"Task {t.id} is Free but parameters still exist on device {device.id}")
+            elif isinstance(t.workload, MallocSimulator):
+                exists = is_memory_exists(device, t)
+                if not exists:
+                    raise ValueError(f"Task {t.id} is Malloc but parameters do not exist on device {device.id}")
+            else:
+                check_memory_exists(device, t)
+
             dur = _workload_time_s(t.workload)
             finish = start + float(dur)
 
