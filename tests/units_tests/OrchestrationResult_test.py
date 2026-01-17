@@ -9,10 +9,10 @@ from perflowai import DeviceConfig, DeviceType, NodeConfig, GEMMKernelSimulator
 from perflowai.simulator.kernel.kernel_simulator import Parameter
 from perflowai.simulator.orchestration.op import MallocSimulator, FreeSimulator
 from perflowai.simulator.orchestration.orchestration import (
-    Assignment,
     OrchestrationResult,
-    Task, DeviceInstance, NodeInstance,
 )
+from perflowai.simulator.orchestration.task import Task, Assignment
+from perflowai.simulator.orchestration.device_info import DeviceInstance, NodeInstance
 from perflowai.workflow.flow import FlowNode
 import secrets
 import string
