@@ -218,4 +218,6 @@ def test_simple_workflow():
         ],
     )
 
-    assert abs(res.estimate_makespan_s() - 2.68435456e-05) < 1e-6
+    ret = res.estimate_makespan_s()
+    assert abs(ret.time_s - 2.68435456e-05) < 1e-6
+    assert abs(ret.max_memory_usage_bytes["GPU0"] - 1024 * 1024 * 3 * 2) < 1e-6

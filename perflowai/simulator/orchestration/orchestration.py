@@ -32,6 +32,9 @@ class DeviceInstance:
     def id(self):
         return self.config.id
 
+    def get_memory_usage_bytes(self) -> int:
+        return sum(p.get_size() for p in self.holding_parameter)
+
 
 class NodeInstance:
     def __init__(self, nodeConfig: NodeConfig):
@@ -126,7 +129,7 @@ def is_memory_exists(device: DeviceInstance, t: Task):
 
 def check_memory_exists(device: DeviceInstance, t: Task):
     if not is_memory_exists(device, t):
-        raise ValueError(f"Device {device.id} does not have parameter {mem.id} required by task {t.id}")
+        raise ValueError(f"Device {device.id} does not have parameter {t.id} required by task {t.id}")
 
 
 def check_device_capacity(device: DeviceInstance, t: Task):
@@ -136,6 +139,18 @@ def check_device_capacity(device: DeviceInstance, t: Task):
     if total_mem + req_mem > device.config.memory_capacity * 1024 * 1024:
         raise ValueError(f"Device {device.id} exceeds memory capacity when running task {t.id}: "
                          f"holding {total_mem} + required {req_mem} > capacity {device.config.memory_capacity_bytes}")
+
+
+class OrchestrationEstimateResult:
+    def __init__(self):
+        self.time_s: float = 0
+        self.max_memory_usage_bytes: dict[str, int] = {}
+
+    def update_max_memory_usage(self, device_id: str, usage_bytes: int):
+        if device_id not in self.max_memory_usage_bytes:
+            self.max_memory_usage_bytes[device_id] = usage_bytes
+        else:
+            self.max_memory_usage_bytes[device_id] = max(self.max_memory_usage_bytes[device_id], usage_bytes)
 
 
 class OrchestrationResult:
@@ -173,7 +188,7 @@ class OrchestrationResult:
                     return gpu
         raise ValueError(f"Device with id '{device_id}' not found in orchestration result.")
 
-    def estimate_makespan_s(self) -> float:
+    def estimate_makespan_s(self) -> OrchestrationEstimateResult:
         """Estimate end-to-end runtime (makespan) from an OrchestrationResult.
 
         Assumptions (matching your description):
@@ -218,6 +233,7 @@ class OrchestrationResult:
         device_available: dict[Union[int, str], float] = {}
 
         processed = 0
+        ret = OrchestrationEstimateResult()
         while ready:
             tid = ready.pop(0)
             t = tasks[tid]
@@ -226,10 +242,10 @@ class OrchestrationResult:
             if t.run_after:
                 dep_ready_time = max(earliest_finish[d] for d in t.run_after)
 
-            dev = device_of[tid]
-            device = self.get_device_by_device_id(dev)
+            device_id = device_of[tid]
+            device = self.get_device_by_device_id(device_id)
 
-            dev_ready_time = float(device_available.get(dev, 0.0))
+            dev_ready_time = float(device_available.get(device_id, 0.0))
             start = max(dep_ready_time, dev_ready_time)
 
             if isinstance(t.workload, FreeSimulator):
@@ -258,7 +274,8 @@ class OrchestrationResult:
             finish = start + float(dur)
 
             earliest_finish[tid] = finish
-            device_available[dev] = finish
+            device_available[device_id] = finish
+            ret.update_max_memory_usage(device_id, device.get_memory_usage_bytes())
 
             processed += 1
             for nxt in succ[tid]:
@@ -272,4 +289,5 @@ class OrchestrationResult:
             remaining = [tid for tid, d in in_deg.items() if d > 0]
             raise ValueError(f"Task dependency graph has cycles; remaining: {remaining}")
 
-        return max(earliest_finish.values(), default=0.0)
+        ret.time_s = max(earliest_finish.values(), default=0.0)
+        return ret
