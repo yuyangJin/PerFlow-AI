@@ -70,7 +70,7 @@ class BaseNetworkSimulator(FlowNode, ABC):
     def __init__(
             self,
             name: str,
-            id: int,
+            id: int| str,
             inputs: list[Parameter],
             outputs: list[Parameter],
             device_config: DeviceConfig,
@@ -196,7 +196,7 @@ class AllGatherNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_gather",
-            id: int = 0,
+            id: int| str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -265,7 +265,7 @@ class AllReduceNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_reduce",
-            id: int = 0,
+            id: int| str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -332,7 +332,7 @@ class AllToAllNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_to_all",
-            id: int = 0,
+            id: int| str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -381,7 +381,7 @@ class ReduceScatterNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "reduce_scatter",
-            id: int = 0,
+            id: int| str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
