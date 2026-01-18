@@ -24,6 +24,8 @@ class GroupTopology:
 
     Example: 2 machines, 8 ranks each => GroupTopology(num_nodes=2, ranks_per_node=8)
     and the total group size is 16.
+
+    TODO: Multi node communication simulator models.
     """
 
     num_nodes: int
@@ -61,6 +63,8 @@ class BaseNetworkSimulator(FlowNode, ABC):
     This is a lightweight cost model for communication time dominated by bandwidth.
     The bytes model intentionally matches the comm-bench scripts under
     `examples/comm-bench/` (bytes_per_rank/total_bytes definitions).
+
+    TODO: Multi node communication simulator models.
     """
 
     def __init__(
@@ -181,6 +185,8 @@ class AllGatherNetworkSimulator(BaseNetworkSimulator):
     Matches comm-bench definition:
     - bytes_per_rank = tensor_bytes(x)
     - total_bytes = bytes_per_rank * group_size
+
+    TODO: Multi node communication simulator models.
     """
 
     def __init__(
@@ -248,6 +254,8 @@ class AllReduceNetworkSimulator(BaseNetworkSimulator):
     - total_bytes = bytes_per_rank * group_size
 
     Note: This does not attempt to model ring/tree algorithm step counts.
+
+    TODO: Multi node communication simulator models.
     """
 
     def __init__(
@@ -313,6 +321,8 @@ class AllToAllNetworkSimulator(BaseNetworkSimulator):
     - effective_numel = chunk_numel * group_size
     - bytes_per_rank = effective_numel * elem_size
     - total_bytes = bytes_per_rank * group_size
+
+    TODO: Multi node communication simulator models.
     """
 
     def __init__(
@@ -360,6 +370,8 @@ class ReduceScatterNetworkSimulator(BaseNetworkSimulator):
     - effective_numel = chunk_numel * group_size
     - bytes_per_rank = effective_numel * elem_size
     - total_bytes = bytes_per_rank * group_size
+
+    TODO: Multi node communication simulator models.
     """
 
     def __init__(

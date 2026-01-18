@@ -1,6 +1,6 @@
 from typing import List, Union
 
-from perflowai import FlowNode
+from perflowai.workflow import FlowNode
 
 
 class Task:

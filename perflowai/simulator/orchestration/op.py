@@ -1,7 +1,7 @@
 from typing import Optional, Callable
 
-from perflowai import BaseKernelSimulator, DeviceConfig
-from perflowai.simulator.kernel.kernel_simulator import Parameter, Workload, KernelSimulationResult
+from perflowai.core import DeviceConfig
+from perflowai.simulator.kernel.kernel_simulator import Parameter, Workload, KernelSimulationResult, BaseKernelSimulator
 
 
 class MallocSimulator(BaseKernelSimulator):

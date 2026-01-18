@@ -1,6 +1,6 @@
 from typing import List, Union
 
-from perflowai import FlowNode
+from perflowai.workflow import FlowNode
 from perflowai.simulator.orchestration.device_info import DeviceInstance, NodeInstance
 from perflowai.simulator.orchestration.op import FreeSimulator, MallocSimulator
 from perflowai.simulator.orchestration.task import Task, Assignment
