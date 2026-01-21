@@ -70,7 +70,7 @@ class BaseNetworkSimulator(FlowNode, ABC):
     def __init__(
             self,
             name: str,
-            id: int| str,
+            id: int | str,
             inputs: list[Parameter],
             outputs: list[Parameter],
             device_config: DeviceConfig,
@@ -196,7 +196,7 @@ class AllGatherNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_gather",
-            id: int| str = 0,
+            id: int | str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -265,7 +265,7 @@ class AllReduceNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_reduce",
-            id: int| str = 0,
+            id: int | str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -332,7 +332,7 @@ class AllToAllNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "all_to_all",
-            id: int| str = 0,
+            id: int | str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -381,7 +381,7 @@ class ReduceScatterNetworkSimulator(BaseNetworkSimulator):
             *,
             topology: GroupTopology,
             name: str = "reduce_scatter",
-            id: int| str = 0,
+            id: int | str = 0,
             comm_coeff: float = 0.8,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
@@ -409,3 +409,41 @@ class ReduceScatterNetworkSimulator(BaseNetworkSimulator):
         bpr = effective_numel * dtype_bytes(x.dtype)
         total = bpr * self.group_size
         return bpr, total
+
+
+class P2PSimulator(BaseNetworkSimulator):
+    """
+    Simulates a Point-to-Point transfer.
+    For simplicity, modeled as a collective of size 2 (Src, Dst),
+    but we purely calculate duration based on BW and size.
+    """
+
+    def __init__(self,
+                 device_config: DeviceConfig,
+                 size_bytes: int,
+                 is_inter_node: bool,
+                 name: str = "p2p",
+                 id: "int | str" = 0):
+        # We construct a dummy topology
+        topo = GroupTopology(num_nodes=2 if is_inter_node else 1, ranks_per_node=1)
+
+        super().__init__(
+            name=name,
+            id=id,
+            inputs=[],
+            outputs=[],
+            device_config=device_config,
+            topology=topo
+        )
+        self.size_bytes = size_bytes
+        self.is_inter_node = is_inter_node
+
+    def validate_parameters(self) -> None:
+        pass
+
+    def _workload(self) -> tuple[int, int]:
+        return self.size_bytes, self.size_bytes
+
+    def _segments_total_bytes(self, workload: NetworkWorkload) -> list[tuple[NetworkScope, int]]:
+        scope = NetworkScope.INTER_NODE if self.is_inter_node else NetworkScope.INTRA_NODE
+        return [(scope, workload.total_bytes)]

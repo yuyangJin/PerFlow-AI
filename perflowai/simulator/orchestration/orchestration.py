@@ -75,7 +75,7 @@ def check_device_capacity(device: DeviceInstance, t: Task):
     req_mem = sum(mem.get_size() for mem in mems)
     if total_mem + req_mem > device.config.memory_capacity * 1024 * 1024:
         raise ValueError(f"Device {device.id} exceeds memory capacity when running task {t.id}: "
-                         f"holding {total_mem} + required {req_mem} > capacity {device.config.memory_capacity_bytes}")
+                         f"holding {total_mem} + required {req_mem} > capacity {device.config.memory_capacity}")
 
 
 class OrchestrationEstimateResult:
