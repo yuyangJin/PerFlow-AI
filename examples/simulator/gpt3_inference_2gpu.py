@@ -2,7 +2,7 @@
 Combined example: single-node 2-GPU GPT-3 inference simulation with Tensor Parallelism.
 Models a single Transformer layer forward pass split across 2 GPUs (TP=2).
 """
-
+from examples.simulator.util import flatten_param
 from perflowai import DeviceConfig, DeviceType, NodeConfig, NodeInstance, FlowNode
 from perflowai.simulator.kernel.kernel_simulator import Parameter, GEMMKernelSimulator
 from perflowai.simulator.comm.comm_simulator import AllReduceNetworkSimulator, GroupTopology
@@ -64,11 +64,6 @@ def run_gpt3_2gpu_inference():
         assignments.append(Assignment(t_id, gpu_id))
         return t_id
 
-    def flatten_param(p: Parameter) -> Parameter:
-        if p.shape and len(p.shape) == 3:
-            b, s, d = p.shape
-            return Parameter(name=p.name, dtype=p.dtype, shape=(b * s, d))
-        return p
 
     # --- Builder / Factory Pattern Helpers ---
     def create_gemm_simulator(gpu_id: str, device_config, a, b, c, name):

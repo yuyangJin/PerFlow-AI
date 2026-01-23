@@ -2,20 +2,11 @@
 Combined example: single-node single-GPU GPT-3 inference simulation.
 Models a single Transformer layer forward pass.
 """
-
+from examples.simulator.util import flatten_param
 from perflowai import DeviceConfig, DeviceType, NodeConfig, NodeInstance, FlowNode
 from perflowai.simulator.kernel.kernel_simulator import Parameter, GEMMKernelSimulator, AttentionKernelSimulator
 from perflowai.simulator.orchestration.op import MallocSimulator, FreeSimulator
 from perflowai.simulator.orchestration.orchestration import OrchestrationResult, Task, Assignment
-
-
-def flatten_param(p: Parameter) -> Parameter:
-    """Returns a view of the parameter as rank-2 (flattening leading dims), sharing the same name/id."""
-    if p.shape and len(p.shape) == 3:
-        b, s, d = p.shape
-        # Intentionally keep the same name so the memory manager treats it as the same buffer.
-        return Parameter(name=p.name, dtype=p.dtype, shape=(b * s, d))
-    return p
 
 
 def run_gpt3_inference():

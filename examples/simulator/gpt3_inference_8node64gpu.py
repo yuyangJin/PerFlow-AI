@@ -10,15 +10,6 @@ from perflowai.simulator.orchestration.orchestration import OrchestrationResult,
 from perflowai.simulator.comm import AllReduceNetworkSimulator, GroupTopology
 
 
-def flatten_param(p: Parameter) -> Parameter:
-    """Returns a view of the parameter as rank-2 (flattening leading dims), sharing the same name/id."""
-    if p.shape and len(p.shape) == 3:
-        b, s, d = p.shape
-        # Intentionally keep the same name so the memory manager treats it as the same buffer.
-        return Parameter(name=p.name, dtype=p.dtype, shape=(b * s, d))
-    return p
-
-
 def create_8node_cluster():
     """Create 8 nodes, each with 8 A100-like GPUs."""
     nodes = []
@@ -26,13 +17,13 @@ def create_8node_cluster():
 
     # Define A100-like GPU specs
     base_gpu_cfg = DeviceConfig(
-        id="template", # Will be overwritten
+        id="template",  # Will be overwritten
         type=DeviceType.GPU,
         memory_capacity=80_000,  # 80 GB
         memory_bandwidth=2000.0,  # 2 TB/s
         compute_flops=312e12,  # 312 TFLOPS (BF16)
-        intra_node_bandwidth=600.0, # 600 GB/s NVLink
-        inter_node_bandwidth=50.0, # 400 Gbps / 8 bits = 50 GB/s
+        intra_node_bandwidth=600.0,  # 600 GB/s NVLink
+        inter_node_bandwidth=50.0,  # 400 Gbps / 8 bits = 50 GB/s
     )
     # Host CPU
     base_cpu_cfg = DeviceConfig(
@@ -76,14 +67,15 @@ def create_8node_cluster():
 
     return nodes, all_gpu_ids
 
+
 def create_tasks_for_gpu(
-    global_rank: int,
-    gpu_id: str,
-    node_id: str,
-    num_layers: int,
-    gpu_cfg: DeviceConfig,
-    tasks_list: list,
-    assignments_list: list
+        global_rank: int,
+        gpu_id: str,
+        node_id: str,
+        num_layers: int,
+        gpu_cfg: DeviceConfig,
+        tasks_list: list,
+        assignments_list: list
 ):
     """Generates tasks for one GPU (TP=8 scenario)."""
 
@@ -97,14 +89,15 @@ def create_tasks_for_gpu(
     tp_size = 8
     # Split heads / d_model
     n_heads_per_rank = n_heads // tp_size
-    d_model_per_rank = d_model // tp_size # Not strictly used for all weights, depends on splitting
+    d_model_per_rank = d_model // tp_size  # Not strictly used for all weights, depends on splitting
 
     # For simplicity, we just divide the large dims by 8 for weight shapes
     # Column Parallel: (d_model, d_model/tp)
     # Row Parallel: (d_model/tp, d_model)
 
     # Shapes
-    input_shape = (batch_size, seq_len, d_model) # Inputs are usually broadcast or split along sequence in some implementations, but let's assume replicated input for TP simple case
+    input_shape = (batch_size, seq_len,
+                   d_model)  # Inputs are usually broadcast or split along sequence in some implementations, but let's assume replicated input for TP simple case
 
     # Attention Q,K,V (Column Parallel)
     w_qkv_shape = (d_model, d_model // tp_size)
@@ -139,7 +132,7 @@ def create_tasks_for_gpu(
     # To save code space, let's just generate for the loop
     # We track dependencies: layer i depends on layer i-1
 
-    previous_step_id = [] # Initially empty or depend on input load
+    previous_step_id = []  # Initially empty or depend on input load
 
     # Initial Input Alloc
     input_full = p("Input", input_shape)
@@ -192,13 +185,18 @@ def create_tasks_for_gpu(
         k_flat = flatten_param(k_local)
         v_flat = flatten_param(v_local)
 
-        t_q = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_q, q_flat, name=f"{l_prefix}_GEMMQ", id=f"{l_prefix}_GEMMQ"), run_after=layer_start_deps + [t_mq])
-        t_k = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_k, k_flat, name=f"{l_prefix}_GEMMK", id=f"{l_prefix}_GEMMK"), run_after=layer_start_deps + [t_mk])
-        t_v = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_v, v_flat, name=f"{l_prefix}_GEMMV", id=f"{l_prefix}_GEMMV"), run_after=layer_start_deps + [t_mv])
+        t_q = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_q, q_flat, name=f"{l_prefix}_GEMMQ", id=f"{l_prefix}_GEMMQ"),
+                  run_after=layer_start_deps + [t_mq])
+        t_k = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_k, k_flat, name=f"{l_prefix}_GEMMK", id=f"{l_prefix}_GEMMK"),
+                  run_after=layer_start_deps + [t_mk])
+        t_v = add(GEMMKernelSimulator(gpu_cfg, in_flat, w_v, v_flat, name=f"{l_prefix}_GEMMV", id=f"{l_prefix}_GEMMV"),
+                  run_after=layer_start_deps + [t_mv])
 
         # Attention Score
         attn_out_local = p(f"L{layer}_AttnOut", (batch_size, seq_len, d_model // tp_size))
-        t_m_attn = add(MallocSimulator(gpu_cfg, attn_out_local.get_size(), attn_out_local, name=f"Malloc_{attn_out_local.name}"), run_after=[])
+        t_m_attn = add(
+            MallocSimulator(gpu_cfg, attn_out_local.get_size(), attn_out_local, name=f"Malloc_{attn_out_local.name}"),
+            run_after=[])
 
         t_attn = add(AttentionKernelSimulator(
             gpu_cfg, q_local, k_local, v_local, attn_out_local,
@@ -213,9 +211,11 @@ def create_tasks_for_gpu(
         partial_out = p(f"L{layer}_PartOut", (batch_size, seq_len, d_model))
         partial_out_flat = flatten_param(partial_out)
 
-        t_m_pout = add(MallocSimulator(gpu_cfg, partial_out.get_size(), partial_out, name=f"Malloc_{partial_out.name}"), run_after=[])
+        t_m_pout = add(MallocSimulator(gpu_cfg, partial_out.get_size(), partial_out, name=f"Malloc_{partial_out.name}"),
+                       run_after=[])
 
-        t_o = add(GEMMKernelSimulator(gpu_cfg, attn_out_flat, w_o, partial_out_flat, name=f"{l_prefix}_GEMMO", id=f"{l_prefix}_GEMMO"), run_after=[t_attn, t_m_pout])
+        t_o = add(GEMMKernelSimulator(gpu_cfg, attn_out_flat, w_o, partial_out_flat, name=f"{l_prefix}_GEMMO",
+                                      id=f"{l_prefix}_GEMMO"), run_after=[t_attn, t_m_pout])
 
         # All Reduce (Sum Partial Results)
         # Output is "Full" (Simulated) - In real code it might be in-place on partial_out.
@@ -227,19 +227,24 @@ def create_tasks_for_gpu(
         # --- MLP ---
         # Up Proj (Column Parallel)
 
-        mlp_h_local = p(f"L{layer}_MLPH", (batch_size, seq_len, (4*d_model)//tp_size))
+        mlp_h_local = p(f"L{layer}_MLPH", (batch_size, seq_len, (4 * d_model) // tp_size))
         mlp_h_flat = flatten_param(mlp_h_local)
 
-        t_m_mlph = add(MallocSimulator(gpu_cfg, mlp_h_local.get_size(), mlp_h_local, name=f"Malloc_{mlp_h_local.name}"), run_after=[])
+        t_m_mlph = add(MallocSimulator(gpu_cfg, mlp_h_local.get_size(), mlp_h_local, name=f"Malloc_{mlp_h_local.name}"),
+                       run_after=[])
 
-        t_up = add(GEMMKernelSimulator(gpu_cfg, flatten_param(partial_out), w_up, mlp_h_flat, name=f"{l_prefix}_GEMMUp", id=f"{l_prefix}_GEMMUp"), run_after=[t_ar_attn, t_m_mlph])
+        t_up = add(GEMMKernelSimulator(gpu_cfg, flatten_param(partial_out), w_up, mlp_h_flat, name=f"{l_prefix}_GEMMUp",
+                                       id=f"{l_prefix}_GEMMUp"), run_after=[t_ar_attn, t_m_mlph])
 
         # Down Proj (Row Parallel)
         mlp_out_partial = p(f"L{layer}_MLPOutP", (batch_size, seq_len, d_model))
 
-        t_m_mlpo = add(MallocSimulator(gpu_cfg, mlp_out_partial.get_size(), mlp_out_partial, name=f"Malloc_{mlp_out_partial.name}"), run_after=[])
+        t_m_mlpo = add(MallocSimulator(gpu_cfg, mlp_out_partial.get_size(), mlp_out_partial,
+                                       name=f"Malloc_{mlp_out_partial.name}"), run_after=[])
 
-        t_down = add(GEMMKernelSimulator(gpu_cfg, mlp_h_flat, w_down, flatten_param(mlp_out_partial), name=f"{l_prefix}_GEMMDown", id=f"{l_prefix}_GEMMDown"), run_after=[t_up, t_m_mlpo])
+        t_down = add(GEMMKernelSimulator(gpu_cfg, mlp_h_flat, w_down, flatten_param(mlp_out_partial),
+                                         name=f"{l_prefix}_GEMMDown", id=f"{l_prefix}_GEMMDown"),
+                     run_after=[t_up, t_m_mlpo])
 
         # All Reduce MLP
         t_ar_mlp = add(AllReduceNetworkSimulator(
@@ -252,6 +257,7 @@ def create_tasks_for_gpu(
         # Cleanup layer intermediates (optional, skip for simplicity as user asked for simple)
 
     return
+
 
 def run_gpt3_inference():
     print("Setting up GPT-3 (175B) on 8 Nodes (64 GPUs)...")
