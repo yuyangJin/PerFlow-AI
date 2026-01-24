@@ -1,8 +1,11 @@
 """
+This is an example of using NodeFlow simulator to estimate a running time and memory usage for a workflow.
+If you need to try a Pipeline Parallelism simulator, please check out `PPGraph` related examples.
+
 Combined example: multi-node multi-GPU GPT-3 inference simulation.
 Models a single Transformer layer forward pass.
 """
-from examples.simulator.util import flatten_param
+from examples.simulator.workflow.util import flatten_param
 from perflowai import DeviceConfig, DeviceType, NodeConfig, NodeInstance
 from perflowai.simulator.comm import AllReduceNetworkSimulator
 from perflowai.simulator.comm.comm_simulator import GroupTopology, P2PSimulator
