@@ -76,6 +76,7 @@ class BaseNetworkSimulator(FlowNode, ABC):
             device_config: DeviceConfig,
             topology: GroupTopology,
             comm_coeff: float = 0.8,
+            sm_usage: float = 0.0,
             workload_aspect: Optional[Callable[["BaseNetworkSimulator", NetworkWorkload], NetworkWorkload]] = None,
     ):
         super().__init__(name=name, id=id, inputs=inputs, outputs=outputs)
@@ -83,6 +84,7 @@ class BaseNetworkSimulator(FlowNode, ABC):
         self.topology = topology
         self.group_size = int(self.topology.group_size())
         self.comm_coeff = float(comm_coeff)
+        self.sm_usage = float(sm_usage)
         self.workload_aspect = workload_aspect
         self._cached_workload: NetworkWorkload | None = None
         self._validate_common()
@@ -113,6 +115,34 @@ class BaseNetworkSimulator(FlowNode, ABC):
             return inter_node_bandwidth_Bps(self.m_device_config)
         raise ValueError(f"Unknown scope: {scope}")
 
+    def _comm_latency_s(self, scope: NetworkScope) -> float:
+        """Get latency for a given scope from microarch config."""
+        if self.m_device_config.microarch is None:
+            return 0.0
+
+        latency_us = 0.0
+        if scope == NetworkScope.INTRA_NODE:
+            latency_us = self.m_device_config.microarch.comm.intra_node_latency_us
+        elif scope == NetworkScope.INTER_NODE:
+            latency_us = self.m_device_config.microarch.comm.inter_node_latency_us
+
+        return latency_us * 1e-6
+
+    @property
+    @abstractmethod
+    def op_type(self) -> str:
+        """Return the canonical operation name (e.g. 'all_gather') for config lookups."""
+
+    @property
+    def effective_efficiency(self) -> float:
+        """Get collective efficiency from microarch or fall back to comm_coeff."""
+        if self.m_device_config.microarch and self.m_device_config.microarch.comm.collective_efficiency:
+            effs = self.m_device_config.microarch.comm.collective_efficiency
+            # Use self.op_type to look up efficiency
+            if self.op_type in effs:
+                return effs[self.op_type]
+        return self.comm_coeff
+
     def _segments_total_bytes(self, workload: NetworkWorkload) -> list[tuple[NetworkScope, int]]:
         """Return a list of (scope, bytes) segments.
 
@@ -129,9 +159,16 @@ class BaseNetworkSimulator(FlowNode, ABC):
 
     def _comm_time_s(self, workload: NetworkWorkload) -> float:
         total_time = 0.0
+        eff = self.effective_efficiency
         for scope, bytes_total in self._segments_total_bytes(workload):
-            bw = self._comm_bandwidth_Bps(scope) * self.comm_coeff
-            total_time += float(bytes_total) / bw if bw > 0 else 0.0
+            bw = self._comm_bandwidth_Bps(scope) * eff
+            latency = self._comm_latency_s(scope)
+
+            # Transfer time + latency per segment
+            # Note: We add latency per segment, modeling the startup cost of each phase
+            transfer_time = float(bytes_total) / bw if bw > 0 else 0.0
+            total_time += transfer_time + latency
+
         return float(total_time)
 
     @abstractmethod
@@ -188,6 +225,10 @@ class AllGatherNetworkSimulator(BaseNetworkSimulator):
 
     TODO: Multi node communication simulator models.
     """
+
+    @property
+    def op_type(self) -> str:
+        return "all_gather"
 
     def __init__(
             self,
@@ -258,6 +299,10 @@ class AllReduceNetworkSimulator(BaseNetworkSimulator):
     TODO: Multi node communication simulator models.
     """
 
+    @property
+    def op_type(self) -> str:
+        return "all_reduce"
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -325,6 +370,10 @@ class AllToAllNetworkSimulator(BaseNetworkSimulator):
     TODO: Multi node communication simulator models.
     """
 
+    @property
+    def op_type(self) -> str:
+        return "all_to_all"
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -374,6 +423,10 @@ class ReduceScatterNetworkSimulator(BaseNetworkSimulator):
     TODO: Multi node communication simulator models.
     """
 
+    @property
+    def op_type(self) -> str:
+        return "reduce_scatter"
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -417,6 +470,10 @@ class P2PSimulator(BaseNetworkSimulator):
     For simplicity, modeled as a collective of size 2 (Src, Dst),
     but we purely calculate duration based on BW and size.
     """
+
+    @property
+    def op_type(self) -> str:
+        return "p2p"
 
     def __init__(self,
                  device_config: DeviceConfig,

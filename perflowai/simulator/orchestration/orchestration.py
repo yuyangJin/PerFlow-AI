@@ -1,9 +1,12 @@
 from typing import List, Union
+from collections import defaultdict
 
 from perflowai.workflow import FlowNode
 from perflowai.simulator.orchestration.device_info import DeviceInstance, NodeInstance
 from perflowai.simulator.orchestration.op import FreeSimulator, MallocSimulator
 from perflowai.simulator.orchestration.task import Task, Assignment
+from perflowai.simulator.kernel.kernel_simulator import BaseKernelSimulator
+from perflowai.simulator.comm.comm_simulator import BaseNetworkSimulator
 
 
 def _workload_time_s(workload: FlowNode) -> float:
@@ -125,7 +128,7 @@ class OrchestrationResult:
                     return gpu
         raise ValueError(f"Device with id '{device_id}' not found in orchestration result.")
 
-    def estimate_makespan_s(self) -> OrchestrationEstimateResult:
+    def estimate_makespan(self) -> OrchestrationEstimateResult:
         """Estimate end-to-end runtime (makespan) from an OrchestrationResult.
 
         Assumptions (matching your description):
@@ -167,7 +170,12 @@ class OrchestrationResult:
         ready.sort()
 
         earliest_finish: dict[str, float] = {}
-        device_available: dict[Union[int, str], float] = {}
+        # Changed: device_timelines maintains separate deadlines for different resources.
+        # device_timelines[device_id]['compute'] -> when SM/Compute engine is free
+        # device_timelines[device_id]['copy']    -> when Copy/DMA engine is free
+        device_timelines: defaultdict[Union[int, str], dict[str, float]] = defaultdict(
+            lambda: {"compute": 0.0, "copy": 0.0}
+        )
 
         processed = 0
         ret = OrchestrationEstimateResult()
@@ -181,9 +189,34 @@ class OrchestrationResult:
 
             device_id = device_of[tid]
             device = self.get_device_by_device_id(device_id)
+            timelines = device_timelines[device_id]
 
-            dev_ready_time = float(device_available.get(device_id, 0.0))
-            start = max(dep_ready_time, dev_ready_time)
+            # Determine resource usage
+            is_compute_task = isinstance(t.workload, BaseKernelSimulator)
+            is_network_task = isinstance(t.workload, BaseNetworkSimulator)
+
+            # Check sm_usage
+            # Kernel defaults to 1.0 (blocks compute).
+            # Network defaults to 0.0 (blocks copy only, unless sm_usage > 0).
+            # Other ops (Free/Malloc) are instantaneous or purely meta, handle as 0 SM usually.
+            default_sm = 1.0 if is_compute_task else 0.0
+            sm_usage = getattr(t.workload, "sm_usage", default_sm)
+
+            # Determine start time based on required resources
+            # 1. Compute resource timeline
+            if is_compute_task or sm_usage > 1e-6:
+                compute_avail = timelines["compute"]
+            else:
+                compute_avail = 0.0
+
+            # 2. Copy/Network resource timeline
+            if is_network_task:
+                copy_avail = timelines["copy"]
+            else:
+                copy_avail = 0.0
+
+            resource_ready_time = max(compute_avail, copy_avail)
+            start = max(dep_ready_time, resource_ready_time)
 
             if isinstance(t.workload, FreeSimulator):
                 inputs = t.workload.get_inputs()
@@ -210,8 +243,16 @@ class OrchestrationResult:
             dur = _workload_time_s(t.workload)
             finish = start + float(dur)
 
+            # Update resource timelines
+            if is_compute_task or sm_usage > 1e-6:
+                timelines["compute"] = finish
+
+            if is_network_task:
+                # Note: if a network task also uses SM, it updates both timelines,
+                # effectively blocking subsequent compute AND network tasks until this finishes.
+                timelines["copy"] = finish
+
             earliest_finish[tid] = finish
-            device_available[device_id] = finish
             ret.update_max_memory_usage(device_id, device.get_memory_usage_bytes())
 
             processed += 1

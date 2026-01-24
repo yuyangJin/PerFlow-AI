@@ -50,6 +50,10 @@ class Parameter:
     def id(self):
         return self.name
 
+    @property
+    def is_floating_point(self) -> bool:
+        return is_floating_dtype(self.dtype)
+
 
 @dataclass(frozen=True)
 class KernelSimulationResult:
@@ -86,11 +90,13 @@ class BaseKernelSimulator(FlowNode, ABC):
             device_config: DeviceConfig,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
+            sm_usage: float = 1.0,
             workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         """
         :param compute_coeff: device_config.compute_flops is scaled by this factor to model efficiency.
         :param memory_coeff: device_config.memory_bandwidth is scaled by this factor to model efficiency.
+        :param sm_usage: Fraction of SM resources occupied (0.0=none, 1.0=full).
         :param workload_aspect: A function that takes (simulator, workload) and returns a modified Workload.
 
         final workload = workload_aspect(simulator, base workload) if workload_aspect is provided.
@@ -99,6 +105,7 @@ class BaseKernelSimulator(FlowNode, ABC):
         self.m_device_config = device_config
         self.compute_coeff = float(compute_coeff)
         self.memory_coeff = float(memory_coeff)
+        self.sm_usage = float(sm_usage)
         self.workload_aspect = workload_aspect
         self._cached_workload: Optional[Workload] = None
         self._validate_common()
@@ -113,6 +120,74 @@ class BaseKernelSimulator(FlowNode, ABC):
     @abstractmethod
     def validate_parameters(self) -> None:
         """Validate that inputs/outputs Parameters match this operator."""
+
+    @property
+    def is_tensor_op(self) -> bool:
+        """Whether this kernel can utilize Tensor Cores."""
+        return False
+
+    def _get_peak_performance(self, dtype: str, bytes_accessed: int) -> tuple[float, float]:
+        """
+        Returns (peak_flops_s, bandwidth_Bps).
+        Resolves MicroArchConfig if available, otherwise falls back to basic device_config.
+        """
+        microarch = self.m_device_config.microarch
+
+        # Default Fallback (L0)
+        peak_flops = float(self.m_device_config.compute_flops) * self.compute_coeff
+        # Note: bandwidth_Bps uses memory_bandwidth (GB/s) -> B/s
+        peak_bw = bandwidth_Bps(self.m_device_config) * self.memory_coeff
+
+        if microarch is None:
+            return peak_flops, peak_bw
+
+        # 1. Refine Compute Peak
+        # Try to find specific FLOPs/s from vector or tensor config
+        flops_found = 0.0
+
+        # Try tensor cores if eligible
+        if self.is_tensor_op and microarch.compute.tensor.enabled:
+            # keys are strings, e.g. "float16", "bf16"
+            flops_dict = microarch.compute.tensor.peak_tflops_by_dtype
+            if dtype in flops_dict:
+                flops_found = flops_dict[dtype] * 1e12
+
+        # Try vector cores (fallback or if not tensor op)
+        if flops_found == 0.0:
+            flops_dict = microarch.compute.vector.peak_tflops_by_dtype
+            if dtype in flops_dict:
+                flops_found = flops_dict[dtype] * 1e12
+
+        if flops_found > 0.0:
+            peak_flops = flops_found * self.compute_coeff
+
+        # 2. Refine Memory Bandwidth (Hierarchical Cache Model)
+        l1 = microarch.memory.l1
+        l2 = microarch.memory.l2
+        dram = microarch.memory.dram
+
+        bw_found_gbps = 0.0
+
+        # Check L1 (highest speed, smallest size)
+        if l1.size_kb > 0 and bytes_accessed <= l1.size_kb * 1024:
+            if l1.bandwidth_gbs > 0:
+                bw_found_gbps = l1.bandwidth_gbs
+
+        # Check L2
+        if bw_found_gbps == 0.0 and l2.size_kb > 0 and bytes_accessed <= l2.size_kb * 1024:
+            if l2.bandwidth_gbs > 0:
+                bw_found_gbps = l2.bandwidth_gbs
+
+        # DRAM fallthrough (or if L1/L2 bw not set / too small)
+        if bw_found_gbps == 0.0:
+            # If DRAM config has explicit bandwidth, use it. Otherwise keep using L0 fallback.
+            if dram.bandwidth_gbs > 0:
+                bw_found_gbps = dram.bandwidth_gbs
+
+        if bw_found_gbps > 0.0:
+            peak_bw = bw_found_gbps * 1e9 * self.memory_coeff
+
+        return peak_flops, peak_bw
 
     @abstractmethod
     def _workload(self) -> tuple[int, int, int]:
@@ -160,8 +235,13 @@ class BaseKernelSimulator(FlowNode, ABC):
         bytes_accessed = workload.bytes_accessed
         peak_bytes = workload.peak_memory_bytes
 
-        compute_time = float(flops) / (float(self.m_device_config.compute_flops) * self.compute_coeff)
-        memory_time = float(bytes_accessed) / (bandwidth_Bps(self.m_device_config) * self.memory_coeff)
+        # Infer dtype from first input
+        dtype = self.m_inputs[0].dtype if self.m_inputs else "float32"
+
+        peak_flops_s, peak_bw_bps = self._get_peak_performance(dtype, bytes_accessed)
+
+        compute_time = float(flops) / peak_flops_s if peak_flops_s > 0 else 0.0
+        memory_time = float(bytes_accessed) / peak_bw_bps if peak_bw_bps > 0 else 0.0
         time_s = max(compute_time, memory_time)
 
         bottleneck = "compute" if compute_time >= memory_time else "memory"
@@ -189,6 +269,10 @@ class GEMMKernelSimulator(BaseKernelSimulator):
     - outputs: C(m,n) (optional; if absent, we infer its shape/dtype from A)
     """
 
+    @property
+    def is_tensor_op(self) -> bool:
+        return True
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -200,6 +284,7 @@ class GEMMKernelSimulator(BaseKernelSimulator):
             id: int | str = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
+            sm_usage: float = 1.0,
             workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         outputs = [c] if c is not None else []
@@ -211,6 +296,7 @@ class GEMMKernelSimulator(BaseKernelSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            sm_usage=sm_usage,
             workload_aspect=workload_aspect,
         )
 
@@ -258,6 +344,10 @@ class AttentionKernelSimulator(BaseKernelSimulator):
     Total: 4*b*h*s*s*head_dim
     """
 
+    @property
+    def is_tensor_op(self) -> bool:
+        return True
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -271,6 +361,7 @@ class AttentionKernelSimulator(BaseKernelSimulator):
             id: int | str = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
+            sm_usage: float = 1.0,
             workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.num_heads = int(num_heads)
@@ -283,6 +374,7 @@ class AttentionKernelSimulator(BaseKernelSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            sm_usage=sm_usage,
             workload_aspect=workload_aspect,
         )
 
@@ -327,6 +419,10 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
     - outputs: Y(n,c_out,h_out,w_out) (optional)
     """
 
+    @property
+    def is_tensor_op(self) -> bool:
+        return True
+
     def __init__(
             self,
             device_config: DeviceConfig,
@@ -341,6 +437,7 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
             id: int | str = 0,
             compute_coeff: float = 0.6,
             memory_coeff: float = 0.8,
+            sm_usage: float = 1.0,
             workload_aspect: Optional[Callable[["BaseKernelSimulator", Workload], Workload]] = None,
     ):
         self.stride = int(stride)
@@ -355,6 +452,7 @@ class Conv2dKernelSimulator(BaseKernelSimulator):
             device_config=device_config,
             compute_coeff=compute_coeff,
             memory_coeff=memory_coeff,
+            sm_usage=sm_usage,
             workload_aspect=workload_aspect,
         )
 

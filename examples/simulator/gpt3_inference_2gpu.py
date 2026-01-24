@@ -193,7 +193,7 @@ def run_gpt3_2gpu_inference():
         assignments=assignments
     )
 
-    estimate = res.estimate_makespan_s()
+    estimate = res.estimate_makespan()
     print(f"\nEstimated Latency (Partial Layer): {estimate.time_s * 1000:.4f} ms")
 
     peak_mem_gb0 = estimate.max_memory_usage_bytes["GPU0"] / 1e9

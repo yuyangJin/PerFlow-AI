@@ -2,7 +2,7 @@
 Combined example: multi-node multi-GPU GPT-3 inference simulation.
 Models a single Transformer layer forward pass.
 """
-
+from examples.simulator.util import flatten_param
 from perflowai import DeviceConfig, DeviceType, NodeConfig, NodeInstance
 from perflowai.simulator.kernel.kernel_simulator import Parameter, GEMMKernelSimulator, AttentionKernelSimulator
 from perflowai.simulator.orchestration.op import MallocSimulator
@@ -308,7 +308,7 @@ def run_gpt3_inference():
     )
 
     print("Simulating...")
-    estimate = res.estimate_makespan_s()
+    estimate = res.estimate_makespan()
 
     print("\nSimulation Results (TP=8, DP=8):")
     print(f"Makespan ({num_layers} layers): {estimate.time_s * 1000:.4f} ms")

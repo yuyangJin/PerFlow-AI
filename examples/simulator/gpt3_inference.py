@@ -184,7 +184,7 @@ def run_gpt3_inference():
         assignments=assignments
     )
 
-    estimate = res.estimate_makespan_s()
+    estimate = res.estimate_makespan()
 
     print("\nSimulation Results:")
     print(f"Total Latency (1 Layer): {estimate.time_s * 1000:.4f} ms")

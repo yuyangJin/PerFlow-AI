@@ -97,7 +97,7 @@ def test_estimate_makespan_serial_single_device():
         assignments=[Assignment("A", "0"), Assignment("B", "0")],
     )
 
-    assert res.estimate_makespan_s() == 5.0
+    assert res.estimate_makespan().time_s == 5.0
 
 
 def test_estimate_makespan_parallel_multi_device():
@@ -113,7 +113,7 @@ def test_estimate_makespan_parallel_multi_device():
     )
 
     # A finishes at 2 on dev0, B finishes at 5 on dev1; C is on dev0, so start=max(5, dev0_avail=2)=5
-    assert res.estimate_makespan_s() == 6.0
+    assert res.estimate_makespan().time_s == 6.0
 
 
 def test_estimate_makespan_detect_cycle():
@@ -127,7 +127,7 @@ def test_estimate_makespan_detect_cycle():
     )
 
     try:
-        res.estimate_makespan_s()
+        res.estimate_makespan()
         assert False, "Expected ValueError due to cycle"
     except ValueError as e:
         assert "cycles" in str(e)
@@ -218,6 +218,6 @@ def test_simple_workflow():
         ],
     )
 
-    ret = res.estimate_makespan_s()
+    ret = res.estimate_makespan()
     assert abs(ret.time_s - 2.68435456e-05) < 1e-6
     assert abs(ret.max_memory_usage_bytes["GPU0"] - 1024 * 1024 * 3 * 2) < 1e-6
