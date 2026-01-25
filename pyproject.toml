@@ -10,6 +10,7 @@ dependencies = [
     "numpy",
     "pytest",
     "matplotlib",
+    "onnx"
 ]
 readme = "README.md"
 license = {file = "LICENSE"}
