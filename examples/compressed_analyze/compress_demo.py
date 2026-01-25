@@ -93,6 +93,9 @@ def compress_single_rank_demo(input_file: str,
     trace_size_mem = get_original_json_mem_size(input_file)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
 
+    o_trace_size_mem = asizeof.asizeof(trace)
+    print(f"🧠 Original Trace memory size: {o_trace_size_mem / 1024 / 1024:.2f} MB")
+
     # write the original trace to a file
     print(f"💾 Writing original trace to {origin_file}")
     trace.write_file(origin_file)

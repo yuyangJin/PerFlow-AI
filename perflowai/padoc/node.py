@@ -17,6 +17,7 @@ using a unified API.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union, Any, Optional, Generator
+import numpy as np
 from .event import Event, MergeEvent, is_same_event
 from .utils import logger
 
@@ -75,9 +76,18 @@ class BaseNode(ABC):
         return False
 
     @abstractmethod
+    def is_similar_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
+        """Check if the first event of this node is similar to another node."""
+        return False
+
+    @abstractmethod
     def get_node_count(self) -> int:
         """Get the total number of nodes in this subtree."""
         return 1
+
+    @abstractmethod
+    def show(self, indent=0):
+        return
 
     @abstractmethod
     def to_dict(self) -> Dict:
@@ -194,11 +204,46 @@ class Node(BaseNode):
 
         return True
 
+    def is_similar_node(self, other, debug = False, indent=0):
+        if isinstance(other, RefNode):
+            return other.is_same_node(self)
+
+        ind = " " * indent
+        if len(self.events) != len(other.get_events()):
+            if debug:
+                logger.debug("%s Node is_same_node: Different event count(%s): %d vs %d",
+                             ind, self.events[0].get_name(),
+                             len(self.events), len(other.get_events()))
+                for e in other.get_events():
+                    logger.debug("%s Node is_same_node: %s", ind, e.get_name())
+            return False
+
+        for i, event in enumerate(self.events):
+            if not is_same_event(event, other.get_events()[i], debug):
+                if debug:
+                    logger.debug("%s Node is_same_node: Different event: %s vs %s",
+                                 ind, event, other.get_events()[i])
+                return False
+
+        return True
+
     def sort_events(self):
         """Sort events in this node by their timestamps."""
         assert len(self.children) == 0, "Cannot sort events in a non-leaf node."
 
         self.events.sort(key=lambda e: e.get_ts())
+
+    def show(self, indent: int = 0):
+        prefix = " " * indent
+
+        if self.events:
+            names = [e.get_name() for e in self.events]
+            print(f"{prefix}Node: {names}")
+        else:
+            print(f"{prefix}Node: <empty>")
+
+        for child in self.children:
+            child.show(indent + 2)
 
     def to_dict(self) -> Dict:
         return {
@@ -238,12 +283,16 @@ class TemplateNode(BaseNode):
     def __init__(self, nodes: List[Union[Node, TemplateNode]]):
         self.events : List[MergeEvent] = []
         self.children : List[Union[TemplateNode, RefNode]] = []
+        self.slots = []
         self.node_count = sum(n.get_node_count() for n in nodes)
 
         self.ev_idxs = None
         self.external_ids = None
         self.sequence_ids = None
         self.correlations = None
+
+        if len(nodes) == 0:
+            return
 
         event_count = len(nodes[0].events)
         for n in nodes[1:]:
@@ -264,6 +313,11 @@ class TemplateNode(BaseNode):
             child_nodes_to_merge = [n.children[i] for n in nodes]
             merged_child_node = TemplateNode(child_nodes_to_merge)
             self.children.append(merged_child_node)
+
+    def add_events(self, events: List[Event]):
+        """Add a list of events to this node."""
+        merged_event = MergeEvent(events)
+        self.events.append(merged_event)
 
     def add_nodes(self, nodes: List[Union[Node, TemplateNode]]):
         """Add a list of nodes to this node."""
@@ -315,7 +369,7 @@ class TemplateNode(BaseNode):
         self.children = children
 
     def add_child(self, child: BaseNode):
-        pass
+        self.children.append(child)
 
     def get_first_event_name(self):
         if len(self.events) > 0:
@@ -362,6 +416,27 @@ class TemplateNode(BaseNode):
                 if debug:
                     logger.debug("TemplateNode is_same_node: Different child: %s vs %s",
                                  event, other.get_children()[i])
+                return False
+
+        return True
+
+    def is_similar_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
+        if isinstance(other, RefNode):
+            return other.is_same_node(self)
+
+        ind = " " * indent
+
+        if len(self.events) != len(other.get_events()):
+            if debug:
+                logger.debug("%s TemplateNode is_same_node: Different event count: %d vs %d",
+                             ind, len(self.events), len(other.get_events()))
+            return False
+
+        for i, event in enumerate(self.events):
+            if not is_same_event(event, other.get_events()[i], debug):
+                if debug:
+                    logger.debug("TemplateNode is_same_node: Different event: %s vs %s",
+                                 event, other.get_events()[i])
                 return False
 
         return True
@@ -469,6 +544,26 @@ class TemplateNode(BaseNode):
                 return False
 
         return True
+    
+    def show(self, indent: int = 0):
+        prefix = " " * indent
+
+        if self.events:
+            names = [e.get_name() + " " + str(e.get_len()) + " " + str(e.ts[0]) for e in self.events]
+            print(f"{prefix}TemplateNode x{self.node_count} {len(self.slots)}: {names}")
+        else:
+            print(f"{prefix}TemplateNode x{self.node_count} {len(self.slots)}: <empty>")
+
+        for child in self.children:
+            child.show(indent + 2)
+
+        for si, slot in enumerate(self.slots):
+            if len(slot) == 0:
+                continue
+            print(f"{prefix}  slot[{si}]")
+            for oi, opt in enumerate(slot):
+                print(f"{prefix}    option[{oi}]")
+                opt.show(indent + 4)
 
     def to_dict(self) -> Dict[str, Any]:
         res = {
@@ -538,6 +633,9 @@ class RefNode(BaseNode):
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         return False
 
+    def is_similar_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
+        return False
+
     def get_events(self) -> List[Event]:
         return self.ref.get_events_by_index(self.index)
 
@@ -567,6 +665,12 @@ class RefNode(BaseNode):
     def compress_event_values(self):
         """Compress event values."""
         return
+
+
+    def show(self, indent: int = 0):
+        prefix = " " * indent
+        ref_id = getattr(self.ref, "id", "unknown")
+        print(f"{prefix}RefNode -> Template {ref_id} [index={self.index}]")
 
     def to_dict(self) -> Dict:
         assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
@@ -613,6 +717,9 @@ class GroupRefNode(BaseNode):
     def is_same_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
         return False
 
+    def is_similar_node(self, other: BaseNode, debug: bool = False, indent = 0) -> bool:
+        return False
+
     def get_events(self) -> List[Event]:
         results = []
         for r in self.ref:
@@ -652,6 +759,11 @@ class GroupRefNode(BaseNode):
         """Compress event values."""
         return
 
+    def show(self, indent: int = 0):
+        prefix = " " * indent
+        ref_ids = [getattr(r, "id", "unknown") for r in self.ref]
+        print(f"{prefix}GroupRefNode -> Templates {ref_ids} [index={self.index}]")
+
     def to_dict(self) -> Dict:
         # assert hasattr(self.ref, "id"), "RefNode must have a ref_node_id."
         return {
@@ -680,3 +792,161 @@ class GroupRefNode(BaseNode):
                 )
 
         return GroupRefNode([templates[ref_id] for ref_id in ref_ids], data["index"])
+
+class CPUNode:
+
+    __slots__ = ["template_index", "instance_index", "children", "slots"]
+
+    def __init__(self, template_index: int, instance_index: int):
+        self.template_index = template_index
+        self.instance_index = instance_index
+        self.children = None
+        self.slots = None
+
+    def add_child(self, child):
+        if self.children is None:
+            self.children = []
+        self.children.append(child)
+
+    def get_children(self):
+        if self.children is None:
+            return []
+        return self.children
+    
+    def to_dict(self):
+        d = {
+            "template_index": self.template_index,
+            "instance_index": self.instance_index,
+        }
+
+        if self.children:
+            d["children"] = [c.to_dict() for c in self.children]
+
+        if self.slots:
+            d["slots"] = [s.to_dict() for s in self.slots]
+
+        return d
+
+    # ===== show 函数 =====
+    def show(self, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}CPUNode(template_index={self.template_index}, instance_index={self.instance_index})")
+        if self.children:
+            for child in self.children:
+                child.show(indent + 1)
+
+
+class SameCPUNode:
+
+    __slots__ = ["template_index", "instance_index", "children", "slots"]
+
+    def __init__(self, template_index: int, instance_index: list):
+        self.template_index = template_index
+        self.instance_index = np.asarray(instance_index, dtype=np.int32)
+        self.children = None
+        self.slots = None
+
+    def add_child(self, child):
+        if self.children is None:
+            self.children = []
+        self.children.append(child)
+
+    def to_dict(self):
+        d = {
+            "template_index": self.template_index,
+            "instance_index": self.instance_index.tolist(),
+        }
+
+        if self.children:
+            d["children"] = [c.to_dict() for c in self.children]
+
+        if self.slots:
+            d["slots"] = [
+                [s.to_dict() for s in slot]
+                for slot in self.slots
+            ]
+
+        return d
+
+    # ===== show 函数 =====
+    def show(self, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}SameCPUNode(template_index={self.template_index}, instance_index_len={len(self.instance_index)})")
+        if self.children:
+            for child in self.children:
+                child.show(indent + 1)
+
+class GroupCPUNode:
+
+    __slots__ = ["template_index", "instance_index", "children", "slots"]
+
+    def __init__(self, template_index, instance_index):
+        # template_index: list[int] | np.ndarray
+        # instance_index: list[int] | np.ndarray
+        self.template_index = np.asarray(template_index, dtype=np.int32)
+        self.instance_index = np.asarray(instance_index, dtype=np.int32)
+        self.children = None
+        self.slots = None
+
+    def add_child(self, child):
+        if self.children is None:
+            self.children = []
+        self.children.append(child)
+
+    def to_dict(self):
+        d = {
+            "template_index": self.template_index.tolist(),
+            "instance_index": self.instance_index.tolist(),
+        }
+
+        if self.children:
+            d["children"] = [c.to_dict() for c in self.children]
+
+        if self.slots:
+            d["slots"] = [
+                [s.to_dict() for s in slot]
+                for slot in self.slots
+            ]
+
+        return d
+
+    def show(self, indent=0):
+        prefix = "  " * indent
+        print(
+            f"{prefix}GroupCPUNode("
+            f"template_index_len={len(self.template_index)}, "
+            f"instance_index_len={len(self.instance_index)})"
+        )
+        if self.children:
+            for child in self.children:
+                child.show(indent + 1)
+
+
+
+class GPUNode:
+
+    __slots__ = ["template_index", "instance_index", "event_start"]
+
+    def __init__(self):
+        self.template_index = []
+        self.instance_index = []
+        self.event_start = None
+
+    def add_event(self, template_index, instance_index):
+        self.template_index.append(template_index)
+        self.instance_index.append(instance_index)
+
+    def set_start_event(self, event_start):
+        self.event_start = event_start
+
+    def to_dict(self):
+        return {
+            "template_index": self.template_index,
+            "instance_index": self.instance_index,
+            "event_start": None
+        }
+
+    # ===== show 函数 =====
+    def show(self, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}GPUNode(template_index_len={len(self.template_index)}, instance_index_len={len(self.instance_index)})")

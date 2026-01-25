@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
+from pympler import asizeof
 import numpy as np
 from .slp import SegmentedLinearPredictorCompressor as SLP
 from .utils import logger, to_json_safe
@@ -149,13 +150,63 @@ class MergeEvent:
         return event
 
     def _parse_name(self, name: str):
-        nums = [x for x in re.findall(r"\d+", name)]
-        pattern = re.sub(r"\d+", "0", name)
+        """
+        Parse name into pattern and nums based on observed logic:
+        - Each leading '0' in a digit sequence is extracted as integer 0.
+        - The remaining non-zero part of the sequence is extracted as a single integer.
+        - In the pattern, '0' is used as a placeholder for every number extracted.
+        """
+        nums = []
+        pattern_parts = []
+        last_idx = 0
+
+        # 查找所有连续的数字片段
+        for match in re.finditer(r"\d+", name):
+            start, end = match.start(), match.end()
+            #保留非数字部分的文本
+            pattern_parts.append(name[last_idx:start])
+            
+            digit_seq = match.group()
+            i = 0
+            # 处理该数字片段
+            while i < len(digit_seq):
+                if digit_seq[i] == '0':
+                    # 如果是0，当作独立的数字0处理
+                    nums.append(0)
+                    pattern_parts.append('0') # 占位符
+                    i += 1
+                else:
+                    # 如果是非0数字，剩下的部分作为一个整体整数处理
+                    rest = digit_seq[i:]
+                    nums.append(int(rest))
+                    pattern_parts.append('0') # 占位符
+                    break # 这一段数字处理完毕
+
+            last_idx = end
+
+        pattern_parts.append(name[last_idx:])
+        pattern = ''.join(pattern_parts)
         return pattern, nums
 
     def _format_name(self, pattern: str, nums: List[str]):
         it = iter(nums)
         return re.sub(r"0", lambda _: str(next(it)), pattern)
+    
+    def _add_single_args(self, dst: dict, src: dict):
+        for k, v in src.items():
+            if isinstance(v, dict):
+                if k not in dst:
+                    dst[k] = {}
+                self._add_single_args(dst[k], v)
+            elif isinstance(v, list):
+                if k not in dst:
+                    dst[k] = [[] for _ in v]  # 每个元素都独立收集
+                for i, val in enumerate(v):
+                    dst[k][i].append(val)
+            else:
+                if k not in dst:
+                    dst[k] = []
+                dst[k].append(v)
 
     def _add_single_event(self, e: Event):
         pat, nums = self._parse_name(e.name)
@@ -175,14 +226,11 @@ class MergeEvent:
         self.s = e.s
 
         if e.args is not None:
-            if not self.args:
+            if self.args is None:
                 self.args = {}
-                for k, v in e.args.items():
-                    self.args[k] = [v]
-                return
-
-            for k in self.args.keys():
-                self.args[k].append(e.args[k])
+                self._add_single_args(self.args, e.args)
+            else:
+                self._add_single_args(self.args, e.args)
 
     def _add_merged_event(self, e: MergeEvent):
 
@@ -205,13 +253,18 @@ class MergeEvent:
                 self.args[k].extend(e.args[k])
 
 
+    def add_event(self, event: Union[Event, MergeEvent]):
+        """Add an event to the merged event."""
+        if isinstance(event, Event):
+            self._add_single_event(event)
+        else:
+            self._add_merged_event(event)
+
+
     def add_events(self, events: List[Union[Event, MergeEvent]]):
         """Add a list of events to the merged event."""
         for event in events:
-            if isinstance(event, Event):
-                self._add_single_event(event)
-            else:
-                self._add_merged_event(event)
+            self.add_event(event)
 
     def compress_values(self):
         """Compress the merged event."""
@@ -236,7 +289,7 @@ class MergeEvent:
     def to_dict(self) -> Dict[str, Any]:
         res = {}
         res["name_pattern"] = self.name_pattern
-        res["name"] = self.name_nums
+        res["name"] = to_json_safe(self.name_nums)
         res["ts"] = to_json_safe(self.ts)
 
         if len(self.dur) > 0:
@@ -269,3 +322,26 @@ class MergeEvent:
         obj.s = raw.get("s", None)
 
         return obj
+
+
+def memory_breakdown_templates(templates: List[MergeEvent]):
+    """
+    返回 templates 中各个 key 占用的总内存
+    """
+    keys = ["name_pattern", "name_nums", "ts", "dur", "id", "cat", "args", "bp", "s"]
+    sizes = {k: 0 for k in keys}
+
+    for tmpl in templates:
+        sizes["name_pattern"] += asizeof.asizeof(tmpl.name_pattern)
+        sizes["name_nums"] += asizeof.asizeof(tmpl.name_nums)
+        sizes["ts"] += asizeof.asizeof(tmpl.ts)
+        sizes["dur"] += asizeof.asizeof(tmpl.dur)
+        sizes["id"] += asizeof.asizeof(tmpl.id)
+        sizes["cat"] += asizeof.asizeof(tmpl.cat)
+        sizes["args"] += asizeof.asizeof(tmpl.args)
+        sizes["bp"] += asizeof.asizeof(tmpl.bp)
+        sizes["s"] += asizeof.asizeof(tmpl.s)
+
+    total = sum(sizes.values())
+    sizes["total"] = total
+    return sizes

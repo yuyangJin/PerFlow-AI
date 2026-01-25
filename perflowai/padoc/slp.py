@@ -70,9 +70,25 @@ class SegmentedLinearPredictorCompressor:
             it = iter(name)
             return [], re.sub(r"0", lambda _: str(next(it)), name_pattern)
 
-        # print(names, name_pattern)
+        compressed_columns = []
 
-        return names, name_pattern
+        # zip(*names) 实现矩阵转置：
+        # 从 m 个长度为 n 的列表，变成 n 个长度为 m 的元组
+        # col_data 代表同一个数字位置在所有 event 中的值
+        for col_data in zip(*names):
+            # 转换为 numpy int32 数组
+            arr = np.array(col_data, dtype=np.int64)
+
+            # 检查是否全部一样
+            # (arr == arr[0]).all() 是 numpy 中检查全等的快速方法
+            if (arr == arr[0]).all():
+                # 如果全一样，退化为单个值 (Python int)
+                compressed_columns.append(int(arr[0]))
+            else:
+                # 否则保留 numpy array
+                compressed_columns.append(arr)
+
+        return compressed_columns, name_pattern
 
     @classmethod
     def decompress_names(cls, compressed_names, name_pattern: str, index: int) -> str:
@@ -185,6 +201,50 @@ class SegmentedLinearPredictorCompressor:
         if best_segments is None:
             return np.asarray(tss, dtype=np.int64)
         return best_segments
+
+    @classmethod
+    def compress_ids(cls, ids: List[str]):
+        id_s, id_arr = cls._parse_id_list(ids)
+
+        return id_s, id_arr
+
+    @classmethod
+    def _parse_id_list(cls, id_list: List[str]) -> Tuple[str, np.ndarray]:
+        """
+        Parse a list of ids into (prefix, numeric_array).
+
+        Rules:
+        - Either all ids are pure digits:       ["123", "456"]
+        - Or all ids are prefix+digits:          ["f90", "f89"]
+        - Mixed or invalid formats are rejected.
+
+        Returns:
+            prefix (str): common string prefix, "" if pure numeric
+            nums   (np.ndarray[int32]): numeric parts
+        """
+        if not id_list:
+            raise ValueError("id_list is empty")
+
+        # Case 1: all pure digits
+        if all(s.isdigit() for s in id_list):
+            nums = np.array([int(s) for s in id_list], dtype=np.int32)
+            return "", nums
+
+        # Case 2: prefix + digits
+        m = re.match(r"^([A-Za-z]+)(\d+)$", id_list[0])
+        if not m:
+            raise ValueError(f"Invalid id format: {id_list[0]}")
+
+        prefix = m.group(1)
+
+        nums = []
+        for s in id_list:
+            m = re.match(rf"^{prefix}(\d+)$", s)
+            if not m:
+                raise ValueError(f"Inconsistent id format: {s}")
+            nums.append(int(m.group(1)))
+
+        return prefix, np.array(nums, dtype=np.int32)
 
 
     @classmethod

@@ -28,8 +28,8 @@ import os
 from collections import defaultdict
 import msgpack
 
-from perflowai.padoc.utils import logger
-from perflowai.padoc.event import Event
+from perflowai.padoc.utils import logger, analyze_node_dict
+from perflowai.padoc.event import Event, MergeEvent
 from perflowai.padoc.node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode
 
 class BaseTrace(ABC):
@@ -48,8 +48,9 @@ class BaseTrace(ABC):
 
     def __init__(self, metadata: Dict[str, Dict[str, Any]] | None = None):
         self.metadata: Dict[str, Dict[str, Any]] = metadata if metadata else {}
-        # rank → pid → tid → ph -> Node
-        self.ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
+        # rank → pid → tid → ph -> List[Event]
+        self.ranks: Dict[str, Dict[str, Dict[str, Dict[str, List[Event]]]]] = {}
+        self.start_timestamp = {}
 
     def get_metadata(self) -> Dict[str, Any]:
         """Return the trace metadata."""
@@ -83,14 +84,14 @@ class BaseTrace(ABC):
         """Set the node for the specified rank, pid, tid and phase."""
         self.ranks.setdefault(rank, {}).setdefault(pid, {}).setdefault(tid, {})[ph] = node
 
-    def iter_nodes(self, rank: Optional[str] = None):
-        """Iterate over all nodes in the trace, optionally filtering by rank."""
+    def iter_events(self, rank: Optional[str] = None):
+        """Iterate over all events in the trace, optionally filtering by rank."""
         rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
         for r, processes in rank_items:
             for pid, threads in processes.items():
                 for tid, phases in threads.items():
-                    for ph, node in phases.items():
-                        yield r, pid, tid, ph, node
+                    for ph, events in phases.items():
+                        yield r, pid, tid, ph, events
 
     @classmethod
     @abstractmethod
@@ -121,8 +122,33 @@ class Trace(BaseTrace):
         super().__init__(metadata)
 
         if events:
-            for rank, events in events.items():
-                self.add_events(events, rank)
+            for rank, rank_events in events.items():
+                rank_events = sorted(rank_events, key=lambda x: x["ts"])
+
+                start_timestamp = rank_events[0]["ts"]
+                self.start_timestamp[rank] = start_timestamp
+                self.ranks[rank] = {}
+
+                for e in rank_events:
+                    pid = e.pop("pid", 0)
+                    tid = e.pop("tid", 0)
+                    ph = e.pop("ph", "X")
+                    e["ts"] -= start_timestamp
+                    args = e.get("args", {})
+                    stream_id = args.get("stream", None)
+                    if stream_id is not None:
+                        tid = f"stream {stream_id}"
+                    else:
+                        category = e.get("cat", "")
+                        if category == "gpu_user_annotation":
+                            tid = f"stream {tid}"
+
+                    rank_layer = self.ranks.setdefault(rank, {})
+                    pid_layer = rank_layer.setdefault(str(pid), {})
+                    tid_layer = pid_layer.setdefault(str(tid), {})
+                    ph_layer = tid_layer.setdefault(str(ph), [])
+
+                    ph_layer.append(Event(e))
 
     @classmethod
     def from_file(cls, path: str) -> 'Trace':
@@ -166,35 +192,7 @@ class Trace(BaseTrace):
 
         return str(rank), events, metadata
 
-    def add_events(self, events: List[Dict[str, Any]], rank: str):
-        """Add events to the trace."""
-        if not events:
-            return
-
-        if rank not in self.ranks:
-            self.ranks[rank] = {}
-
-        for e in events:
-            pid = e.pop("pid", 0)
-            tid = e.pop("tid", 0)
-            ph = e.pop("ph", "X")
-            args = e.get("args", {})
-            stream_id = args.get("stream", None)
-            if stream_id is not None:
-                tid = f"stream {stream_id}"
-            else:
-                category = e.get("cat", "")
-                if category == "gpu_user_annotation":
-                    tid = f"stream {tid}"
-
-            rank_layer = self.ranks.setdefault(rank, {})
-            pid_layer = rank_layer.setdefault(str(pid), {})
-            tid_layer = pid_layer.setdefault(str(tid), {})
-            node = tid_layer.setdefault(str(ph), Node())
-
-            node.add_events([Event(e)])
-
-    def write_file(self, path: str, rank: str = "", origin: bool = True):
+    def write_file(self, path: str, rank: str = "", origin: bool = False):
         out = {}
         if rank == "":
             rank = self.get_ranks()[0]
@@ -207,8 +205,8 @@ class Trace(BaseTrace):
             for r, processes in rank_items:
                 for pid, tids in processes.items():
                     for tid, phases in tids.items():
-                        for ph, node in phases.items():
-                            for e in node.get_events():
+                        for ph, events in phases.items():
+                            for e in events:
                                 event_dict = e.to_dict().copy()
                                 event_dict["pid"] = pid
                                 t = tid
@@ -219,6 +217,7 @@ class Trace(BaseTrace):
 
                                 event_dict["tid"] = t
                                 event_dict["ph"]  = ph
+                                event_dict["ts"] += self.start_timestamp[r]
                                 trace_events.append(event_dict)
 
             trace_events = sorted(
@@ -237,6 +236,7 @@ class Trace(BaseTrace):
         else:
             out["metadata"] = self.metadata[rank]
             out["ranks"] = {}
+            out["start_timestamp"] = self.start_timestamp
 
             rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
             for r, processes in rank_items:
@@ -245,8 +245,8 @@ class Trace(BaseTrace):
                     out["ranks"][r][pid] = {}
                     for tid, phases in tids.items():
                         out["ranks"][r][pid][tid] = {}
-                        for ph, node in phases.items():
-                            out["ranks"][r][pid][tid][ph] = node.to_dict()
+                        for ph, events in phases.items():
+                            out["ranks"][r][pid][tid][ph] = [e.to_dict() for e in events]
 
         ext = os.path.splitext(path)[1].lower()
 
@@ -294,22 +294,28 @@ class CompressedTrace(BaseTrace):
     layers, decode steps, or repeated micro-batches.
     """
 
-    def __init__(self, templates: Dict[str, TemplateNode],
+    def __init__(self, event_templates: List[MergeEvent],
                  ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]],
                  metadata: Dict[str, Any] | None = None):
 
         super().__init__(metadata)
         self.ranks = ranks
 
-        self.templates: Dict[str, TemplateNode] = templates
+        self.event_templates: List[MergeEvent] = event_templates
 
     def compress_templates_values(self) -> None:
         """Compress the values of templates."""
-        for node in self.templates.values():
+        # for node in self.templates.values():
             # node.try_compress_args_id()
-            node.compress_event_values()
+            # node.compress_event_values()
 
         # self.ranks = {}
+        # analyze_node_dict(self.ranks)
+        # for r, p, t, ph, node in self.iter_events():
+        #     print("="*20)
+        #     print(r, p, t, ph)
+        #     node.show()
+        pass
 
     @classmethod
     def from_file(cls, path: str) -> CompressedTrace:
@@ -353,11 +359,8 @@ class CompressedTrace(BaseTrace):
         out = {}
 
         out["metadata"] = self.metadata
-        out["templates"] = {}
+        out["event_templates"] = [m.to_dict() for m in self.event_templates]
         out["ranks"] = {}
-
-        for i, template in self.templates.items():
-            out["templates"][i] = template.to_dict()
 
         for r, processes in self.ranks.items():
             out["ranks"][r] = {}

@@ -7,13 +7,15 @@ and decompression methods.
 """
 
 from __future__ import annotations
-from typing import List, Dict, Union, Optional, Tuple
+from typing import List, Dict, Union, Optional, Tuple, Any
 from abc import ABC, abstractmethod
 import time
 import re
+from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
-from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode
-from .utils import logger
+from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode, CPUNode, GPUNode, SameCPUNode
+from .event import Event, MergeEvent, is_same_event, memory_breakdown_templates
+from .utils import logger, log_memory_breakdown, log_memory_diff
 
 class Compressor(ABC):
     """Abstract base class for all compressors.
@@ -51,9 +53,17 @@ class TemplateCompressor(Compressor):
 
     def __init__(self):
         super().__init__()
+        self.event_templates: List[MergeEvent] = []
+        self.name2indexes: Dict[str, List[int]] = defaultdict(list)
+        self.gpu_events: Dict[int, Event] = {}
+        self.gpu_visited = set()
         self.templates: Dict[str, TemplateNode] = {}
         self.templates_refs: Dict[str, List[RefNode]] = {}
         self.name2id: Dict[str, List[str]] = {}
+
+        self.corr2node: Dict[int, CPUNode] = {}
+        self.corr_info: Dict[Any, int] = {}
+        self.corr_info_set = set()
 
         self.build_tree_time = 0
         self.compress_tree_time = 0
@@ -79,25 +89,80 @@ class TemplateCompressor(Compressor):
 
         logger.info("Intra compressing rank %s", rank)
 
-        for _, pid, tid, ph, node in trace.iter_nodes(rank):
+        for rank, pid, tid, ph, events in trace.iter_events(rank):
+            if not "stream" in tid:
+                continue
+
+            key = (rank, pid, tid, ph)
+            for event in events:
+                args: Dict[str, Any] = event.args
+                if args is None:
+                    continue
+                corr = args.get("correlation", None)
+                if corr is None:
+                    continue
+                if key not in self.corr_info:
+                    self.corr_info[key] = corr
+                    self.corr_info_set.add(corr)
+                assert corr not in self.gpu_events, \
+                    f"GPU events should not have same correlation {corr}"
+                self.gpu_events[corr] = event
+
+        logger.info("There are %d GPU events", len(self.gpu_events))
+
+        for _, pid, tid, ph, events in trace.iter_events(rank):
 
             compressed_ranks.setdefault(
                 str(pid), {}).setdefault(str(tid), {})
 
+            is_gpu = "stream" in tid
+
+            if is_gpu:
+                continue
+
             if ph == "X":
                 build_start_time = time.time()
-                root, abnoraml_root = self._build_call_tree(node)
+                root, abnoraml_root = self._build_call_tree(events, is_gpu)
                 if abnoraml_root is not None:
                     logger.warning("Abnormal root found, pid %s tid %s", pid, tid)
-                    new_root = self._compress_node(abnoraml_root, self.templates, self.name2id)
+                    # new_root = self._compress_node_new(abnoraml_root, self.templates, self.name2id)
                     compressed_ranks[str(pid)][str(tid) + "-abnormal"] = {}
-                    compressed_ranks[str(pid)][str(tid) + "-abnormal"][ph] = new_root
+                    compressed_ranks[str(pid)][str(tid) + "-abnormal"][ph] = abnoraml_root
                 self.build_tree_time += time.time() - build_start_time
             else:
-                root = self._divide_events(node)
+                root = self._divide_events(events, is_gpu)
+                root = self._compress_node_new(root)
             conpress_start_time = time.time()
-            root = self._compress_node(root, self.templates, self.name2id)
+            # root = self._compress_node_new(root, self.templates, self.name2id)
             self.compress_tree_time += time.time() - conpress_start_time
+            compressed_ranks[str(pid)][str(tid)][ph] = root
+
+        for rank, pid, tid, ph, events in trace.iter_events(rank):
+
+            compressed_ranks.setdefault(
+                str(pid), {}).setdefault(str(tid), {})
+
+            is_gpu = "stream" in tid
+
+            if not is_gpu:
+                continue
+
+            if ph == "X":
+                build_start_time = time.time()
+                root, abnoraml_root = self._build_call_tree(events, is_gpu)
+                if abnoraml_root is not None:
+                    logger.warning("Abnormal root found, pid %s tid %s", pid, tid)
+                    # new_root = self._compress_node_new(abnoraml_root, self.templates, self.name2id)
+                    compressed_ranks[str(pid)][str(tid) + "-abnormal"] = {}
+                    compressed_ranks[str(pid)][str(tid) + "-abnormal"][ph] = abnoraml_root
+                self.build_tree_time += time.time() - build_start_time
+            else:
+                root = self._divide_events(events, is_gpu)
+                root = self._compress_node_new(root)
+            conpress_start_time = time.time()
+            # root = self._compress_node_new(root, self.templates, self.name2id)
+            self.compress_tree_time += time.time() - conpress_start_time
+            root.set_start_event(self.corr2node[self.corr_info[(rank, pid, tid, ph)]])
             compressed_ranks[str(pid)][str(tid)][ph] = root
 
         compress_time = time.time() - strat_time
@@ -117,20 +182,36 @@ class TemplateCompressor(Compressor):
         ranks = {rank: compressed_rank}
 
         logger.info("Compressing templates")
-        for tem_node in list(self.templates.values()):
-            self._compress_node(tem_node, self.templates, self.name2id)
+        # for tem_node in list(self.templates.values()):
+        #     self._compress_node(tem_node, self.templates, self.name2id)
+        for id, tem in self.templates.items():
+            print(f"template {id}:")
+            tem.show()
         logger.info("After compressing, have %d templates", len(self.templates))
 
-        for k, v in self.templates.items():
-            self.templates[k] = self._merge_ref(v)
+        # for k, v in self.templates.items():
+        #     self.templates[k] = self._merge_ref(v)
 
-        for _, compressed_ranks in ranks.items():
-            for _, tids in compressed_ranks.items():
-                for _, phs in tids.items():
-                    for ph, node in phs.items():
-                        phs[ph] = self._merge_ref(node)
+        # for _, compressed_ranks in ranks.items():
+        #     for _, tids in compressed_ranks.items():
+        #         for _, phs in tids.items():
+        #             for ph, node in phs.items():
+        #                 phs[ph] = self._merge_ref(node)
 
-        return CompressedTrace(self.templates, ranks, trace.get_metadata())
+        before = memory_breakdown_templates(self.event_templates)
+
+        for m in self.event_templates:
+            m.compress_values()
+
+        after = memory_breakdown_templates(self.event_templates)
+
+        logger.info("=== Template memory AFTER value compression ===")
+        log_memory_breakdown(logger, after)
+
+        log_memory_diff(logger, before, after)
+
+
+        return CompressedTrace(self.event_templates, ranks, trace.get_metadata())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
@@ -215,10 +296,12 @@ class TemplateCompressor(Compressor):
             if isinstance(merged_child, RefNode):
                 current_ref_list.append(merged_child.ref)
                 current_index_list.append(merged_child.index)
+                pass
 
             elif isinstance(merged_child, GroupRefNode):
                 current_ref_list.extend(merged_child.ref)
                 current_index_list.extend(merged_child.index)
+                pass
 
             else:
 
@@ -238,58 +321,216 @@ class TemplateCompressor(Compressor):
         node.set_children(new_children)
         return node
 
-    def _build_call_tree(self, node: Node) -> Tuple[Node, Optional[Node]]:
+    def _normalize_name(self, name: str) -> str:
+        return re.sub(r"\d+", "0", name)
+
+    def _find_event_template(self, e: Event) -> int | None:
+        key = self._normalize_name(e.get_name())
+        for tid in self.name2indexes.get(key, []):
+            tmpl = self.event_templates[tid]
+            if is_same_event(tmpl, e):
+                return tid
+        return None
+
+    def _create_event_template(self, e: Event) -> int:
+        index = len(self.event_templates)
+        tmpl = MergeEvent([e])
+        self.event_templates.append(tmpl)
+        self.name2indexes[self._normalize_name(e.get_name())].append(index)
+        return index
+
+    def _add_event(self, e: Event) -> Tuple[int, int]:
+        temp_index = self._find_event_template(e)
+        if temp_index is None:
+            temp_index = self._create_event_template(e)
+            inst_id = 0
+        else:
+            self.event_templates[temp_index].add_event(e)
+            inst_id = self.event_templates[temp_index].get_len() - 1
+
+        return temp_index, inst_id
+
+    def _convert_node_to_cpunode(self, node: Node) -> CPUNode:
+        assert len(node.events) == 1, "Node should have only one event"
+
+        e = node.events[0]
+
+        template_index, instance_index = self._add_event(e)
+
+        cpu_node = CPUNode(template_index, instance_index)
+
+        for child in node.get_children():
+            cpu_child = self._convert_node_to_cpunode(child)
+            cpu_node.add_child(cpu_child)
+
+        return cpu_node
+
+    def _build_call_tree(
+        self,
+        events: List[Event],
+        is_gpu: bool
+    ) -> Tuple[Node, Optional[Node]]:
+
+        t_build_start = time.perf_counter()
+
+        # ========================
+        # sort events
+        # ========================
+        t_sort_start = time.perf_counter()
         events = sorted(
-            node.events,
+            events,
             key=lambda e: (e.ts, -e.dur if e.dur is not None else 0)
         )
+        t_sort = time.perf_counter() - t_sort_start
 
+        # ========================
+        # 统计 _add_event 耗时
+        # ========================
+        add_event_time = 0.0
+        add_event_calls = 0
+
+        def timed_add_event(e: Event):
+            nonlocal add_event_time, add_event_calls
+            t0 = time.perf_counter()
+            res = self._add_event(e)
+            add_event_time += time.perf_counter() - t0
+            add_event_calls += 1
+            return res
+
+        # ========================
+        # GPU branch
+        # ========================
+        if is_gpu:
+            t_gpu_start = time.perf_counter()
+
+            gpu_node = GPUNode()
+
+            skipped_corr = 0
+
+            for e in events:
+                args = e.args
+                if args is None:
+                    temp_index, inst_id = timed_add_event(e)
+                    gpu_node.add_event(temp_index, inst_id)
+                    continue
+
+                corr = args.get("correlation", None)
+                if corr is not None and corr in self.gpu_visited:
+                    skipped_corr += 1
+                    continue
+
+                temp_index, inst_id = timed_add_event(e)
+                gpu_node.add_event(temp_index, inst_id)
+
+            t_gpu = time.perf_counter() - t_gpu_start
+            t_total = time.perf_counter() - t_build_start
+
+            logger.info(
+                "[BUILD GPU TREE] events=%d | total=%.3f ms | sort=%.3f ms | "
+                "_add_event=%.3f ms (%d calls) | skipped_corr=%d",
+                len(events),
+                t_total * 1e3,
+                t_sort * 1e3,
+                add_event_time * 1e3,
+                add_event_calls,
+                skipped_corr,
+            )
+
+            return gpu_node, None
+
+        # ========================
+        # CPU branch
+        # ========================
+        t_cpu_start = time.perf_counter()
 
         roots: List[Node] = []
+        ref_roots: List[CPUNode] = []
         stack: List[Node] = []
+        ref_stack: List[CPUNode] = []
 
         abnormal_root = Node()
+        abnormal_ref_root = CPUNode(-1, -1)
 
         for e in events:
             while stack:
                 top_event = stack[-1].events[0]
-                if top_event.ts + top_event.dur <= e.ts and e.dur > 0:
+                if (
+                    (top_event.ts + top_event.dur <= e.ts and e.dur > 0)
+                    or (top_event.ts + top_event.dur < e.ts)
+                ):
                     stack.pop()
+                    ref_stack.pop()
                 else:
                     break
 
             new_node = Node(events=[e])
 
+            temp_index, inst_id = timed_add_event(e)
+            new_ref_node = CPUNode(temp_index, inst_id)
+
+            e_args = e.args
+            if e_args is not None and "correlation" in e_args:
+                corr = e_args["correlation"]
+                if corr in self.gpu_events:
+                    self.gpu_visited.add(corr)
+                    # new_ref_node.add_child(Node(events=[self.gpu_events[corr]]))
+                    if corr in self.corr_info_set:
+                        self.corr2node[corr] = new_ref_node
+
             if stack:
                 top_event = stack[-1].events[0]
                 if top_event.ts + top_event.dur < e.ts + e.dur:
                     abnormal_root.add_child(new_node)
+                    abnormal_ref_root.add_child(new_ref_node)
                     continue
                 else:
                     stack[-1].add_child(new_node)
+                    ref_stack[-1].add_child(new_ref_node)
             else:
                 roots.append(new_node)
+                ref_roots.append(new_ref_node)
 
             stack.append(new_node)
+            ref_stack.append(new_ref_node)
 
-        logger.info("Building %d call trees", len(roots))
-
-        if len(roots) == 1:
-            root = roots[0]
+        # ========================
+        # build root
+        # ========================
+        if len(ref_roots) == 1:
+            root = ref_roots[0]
         else:
-            root = Node()
-            for r in roots:
+            root = CPUNode(-1, -1)
+            for r in ref_roots:
                 root.add_child(r)
 
-        if len(abnormal_root.get_children()) == 0:
-            abnormal_root = None
+        if len(abnormal_ref_root.get_children()) == 0:
+            abnormal_ref_root = None
 
-        return root, abnormal_root
+        t_cpu = time.perf_counter() - t_cpu_start
+        t_total = time.perf_counter() - t_build_start
 
-    def _divide_events(self, node: Node) -> Node:
-        new_node = Node()
-        for e in node.get_events():
-            new_node.add_child(Node(events=[e]))
+        logger.info(
+            "[BUILD CPU TREE] events=%d | total=%.3f ms | sort=%.3f ms | "
+            "_add_event=%.3f ms (%d calls) | cpu_build=%.3f ms | abnormal=%s",
+            len(events),
+            t_total * 1e3,
+            t_sort * 1e3,
+            add_event_time * 1e3,
+            add_event_calls,
+            t_cpu * 1e3,
+            abnormal_ref_root is not None,
+        )
+
+        root = self._compress_node_new(root)
+
+        return root, abnormal_ref_root
+
+    def _divide_events(self, events: List[Event], is_gpu: bool) -> Node:
+        new_node = CPUNode(-1, -1)
+        for e in events:
+            temp_index, inst_id = self._add_event(e)
+            temp = CPUNode(temp_index, inst_id)
+            new_node.add_child(temp)
         return new_node
 
     def _group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
@@ -326,111 +567,172 @@ class TemplateCompressor(Compressor):
 
         return groups, unused
 
-    def _find_node_in_templates(self,
-                                node: Node,
-                                templates: Dict[str, TemplateNode],
-                                ids: List[str],
-                                debug_flag: bool = False
-        ) -> Optional[TemplateNode]:
-        for k in ids:
-            if k in templates:
-                template = templates[k]
-                check_start_time = time.time()
-                is_same = template.is_same_node(node, debug_flag)
-                self.check_same_node_time += time.time() - check_start_time
-                if is_same:
-                    return template
-            else:
-                logger.error("Template %s not found", k)
+    def _compress_node_new(self, node):
 
-        return None
-
-    def _compress_node(self,
-                       node: Union[Node, TemplateNode],
-                       templates: Dict[str, TemplateNode],
-                       name2id: Dict[str, List[str]]
-        ) -> Node:
-        # there is no ref node
-
-        if not hasattr(node, "id"): # only root template node has id
-            find_start_time = time.time()
-            name = node.get_first_event_name()
-            pattern = re.sub(r"\d+", "0", name)
-            ids = name2id.get(pattern, [])
-            tem = self._find_node_in_templates(node, templates, ids)
-            self.find_template_time += time.time() - find_start_time
-            if tem is not None:
-                index = tem.get_node_count()
-                tem.add_nodes([node])
-
-                ref_node = RefNode(tem, index)
-                self.templates_refs.setdefault(tem.id, []).append(ref_node)
-
-                return ref_node
-
-        groups, _ = self._group_same_children(node)
-        node_to_ref_node: Dict[BaseNode, RefNode] = {}
-        for group in groups:
-            find_start_time = time.time()
-            name = group[0].get_first_event_name()
-            pattern = re.sub(r"\d+", "0", name)
-            debug_flag = False
-            ids = name2id.get(pattern, [])
-            tem = self._find_node_in_templates(group[0], templates, ids, debug_flag)
-            self.find_template_time += time.time() - find_start_time
-            if tem is not None:
-                index = tem.get_node_count()
-                tem.add_nodes(group)
-                for n in group:
-                    next_index = index + n.get_node_count()
-                    ref_node = RefNode(tem, index)
-                    self.templates_refs.setdefault(tem.id, []).append(ref_node)
-                    node_to_ref_node[n] = ref_node
-                    index = next_index
-            else:
-                tem = TemplateNode(group)
-                tem.id = str(len(templates))
-                name = tem.get_first_event_name()
-                name2id.setdefault(name, []).append(tem.id)
-                templates[tem.id] = tem
-                index = 0
-                for n in group:
-                    next_index = index + n.get_node_count()
-                    ref_node = RefNode(tem, index)
-                    self.templates_refs.setdefault(tem.id, []).append(ref_node)
-                    node_to_ref_node[n] = ref_node
-                    index = next_index
-
-                # self._compress_node(tem)
-
-        new_children = []
-        for child in node.get_children():
-            if child in node_to_ref_node:
-                new_children.append(node_to_ref_node[child])
-            else:
-                new_children.append(self._compress_node(child, templates, name2id))
-
-        node.children = new_children
-
-        return node
-
-
-    def _flatten_tree(self, node: Node):
-        if (len(node.get_children())) == 0:
+        if len(node.get_children()) == 0:
             return node
 
-        while (len(node.get_children())) == 1:
-            node.add_events(node.get_children()[0].get_events())
-            new_children = node.get_children()[0].get_children()
-            node.children = new_children
+        groups, unused = self._group_similar_nodes(node.get_children())
 
-        new_children = []
-        for child in node.get_children():
-            new_children.append(self._flatten_tree(child))
+        temps = []
+        for group in groups:
+            temp = self._build_template(group)
+            temps.append(temp)
 
-        node.children = new_children
+
+        node.children = temps
+        for child in unused:
+            if node.slots is None:
+                node.slots = []
+            node.slots.append(self._compress_node_new(child))
 
         return node
+
+    def _compress_nodes(self, nodes):
+
+        groups, unused = self._group_similar_nodes(nodes)
+
+        results = []
+        for group in groups:
+            temp = self._build_template(group)
+            results.append(temp)
+
+
+        for child in unused:
+            results.append(child)
+
+        return results
+
+    def _build_template(self, group):
+        tnode = SameCPUNode(group[0].template_index, [n.instance_index for n in group])
+
+        group_children = [n.get_children() for n in group]
+
+
+        child_sizes = [len(c) for c in group_children]
+
+        if all(size == 0 for size in child_sizes):
+            return tnode
+
+
+        if any(size == 0 for size in child_sizes):
+            # 不做 LCS，全部 children 进 slot
+            tnode.slots = group_children
+            return tnode
+
+        matched, unmatched = self._extract_anchors(group_children)
+
+        for i in range(len(matched[0])):
+            sub_group = [matched[j][i] for j in range(len(matched))]
+            sub_tem = self._build_template(sub_group)
+            tnode.add_child(sub_tem)
+
+        if unmatched and any(unmatched):
+            tnode.slots = [self._compress_nodes(n) for n in unmatched]
+
+        return tnode
+
+    def _group_similar_nodes(self, nodes):
+        n = len(nodes)
+        used = [False] * n
+        groups = []
+
+        for i in range(n):
+            if used[i]:
+                continue
+
+            current_group = [nodes[i]]
+
+            for j in range(i+1, n):
+                if used[j]:
+                    continue
+
+                is_similar = nodes[i].template_index == nodes[j].template_index
+                if is_similar:
+                    current_group.append(nodes[j])
+                    used[j] = True
+
+            if len(current_group) > 1:
+                used[i] = True
+                groups.append(current_group)
+
+        unused = [nodes[i] for i in range(n) if not used[i]]
+
+        return groups, unused
+
+
+    def _extract_anchors(
+        self,
+        sequences: List[List[Node]]
+    ) -> Tuple[List[List[Node]], List[List[Node]]]:
+        """
+        返回:
+        matched   : 每个序列对应的 anchor 子序列
+        unmatched : 每个序列剩余的 slot 内容
+        """
+
+        if not sequences:
+            return [], []
+
+        # 如果只有一个序列，没必要建模板
+        if len(sequences) == 1:
+            return [list(sequences[0])], [[]]
+
+        # 1. 选最短序列作为 reference（更稳）
+        ref_idx = min(range(len(sequences)), key=lambda i: len(sequences[i]))
+        ref = sequences[ref_idx]
+
+        # 2. 为每个序列维护扫描指针
+        cursors = [0] * len(sequences)
+
+        anchors = []  # List[List[Node]]，每一列
+
+        for ref_node in ref:
+            matched_nodes = [None] * len(sequences)
+            ok = True
+
+            for i, seq in enumerate(sequences):
+                found = False
+                for j in range(cursors[i], len(seq)):
+                    if ref_node.template_index == seq[j].template_index:
+                        matched_nodes[i] = seq[j]
+                        cursors[i] = j + 1
+                        found = True
+                        break
+                if not found:
+                    ok = False
+                    break
+
+            if ok:
+                anchors.append(matched_nodes)
+
+        # 3. 如果 anchor 为空，整体失败 → 全进 slot
+        if not anchors:
+            return (
+                [[] for _ in sequences],
+                [list(seq) for seq in sequences]
+            )
+
+        # 4. 构造 matched / unmatched
+        matched = [[] for _ in sequences]
+        used_indices = [set() for _ in sequences]
+
+        for col in anchors:
+            for i, node in enumerate(col):
+                matched[i].append(node)
+                used_indices[i].add(node)
+
+        unmatched = []
+        for i, seq in enumerate(sequences):
+            unmatched.append([n for n in seq if n not in used_indices[i]])
+
+        return matched, unmatched
+
+    def _flatten_slots(self, slots: List[List[Node]]) -> List[Node]:
+        flat = []
+        for s in slots:
+            flat.extend(s)
+        return flat
 
     def _decompress_rank(self, compressed_trace: BaseTrace, rank: str):
         assert isinstance(compressed_trace, CompressedTrace), \
