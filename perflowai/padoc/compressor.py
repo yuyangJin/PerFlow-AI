@@ -13,7 +13,7 @@ import time
 import re
 from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
-from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode, CPUNode, GPUNode, SameCPUNode
+from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode, CPUNode, GPUNode, SameCPUNode, KernelNode
 from .event import Event, MergeEvent, is_same_event, memory_breakdown_templates
 from .utils import logger, log_memory_breakdown, log_memory_diff
 
@@ -473,7 +473,8 @@ class TemplateCompressor(Compressor):
                 corr = e_args["correlation"]
                 if corr in self.gpu_events:
                     self.gpu_visited.add(corr)
-                    # new_ref_node.add_child(Node(events=[self.gpu_events[corr]]))
+                    temp_index, inst_id = timed_add_event(self.gpu_events[corr])
+                    new_ref_node.add_child(KernelNode(temp_index, inst_id))
                     if corr in self.corr_info_set:
                         self.corr2node[corr] = new_ref_node
 

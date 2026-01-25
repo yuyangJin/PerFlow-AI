@@ -922,6 +922,27 @@ class GroupCPUNode:
                 child.show(indent + 1)
 
 
+class KernelNode:
+
+    __slots__ = ["template_index", "instance_index"]
+
+    def __init__(self, template_index: int, instance_index: int):
+        self.template_index = template_index
+        self.instance_index = instance_index
+
+    def get_children(self):
+        return []
+
+    def to_dict(self):
+        return {
+            "template_index": self.template_index,
+            "instance_index": self.instance_index,
+        }
+
+    # ===== show 函数 =====
+    def show(self, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}KernelNode(template_index={self.template_index}, instance_index={self.instance_index})")
 
 class GPUNode:
 
