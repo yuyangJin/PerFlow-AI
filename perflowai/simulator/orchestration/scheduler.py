@@ -83,6 +83,23 @@ class Scheduler:
         # Track producers to set dependencies
         tensor_producers: Dict[str, str] = {}
 
+        # --- Handle Graph Inputs ---
+        for input_proto in self.graph.graph.input:
+            input_name = input_proto.name
+            size = tensor_sizes.get(input_name, 0)
+            malloc_id = f"malloc_{input_name}"
+
+            # Assume byte type for unknown/simplified inputs
+            param = Parameter(input_name, "uint8", (size,), None)
+            malloc_op = MallocSimulator(self.device_config, size, param, name=malloc_id)
+
+            malloc_task = Task(malloc_id, malloc_op, run_after=[])
+            tasks.append(malloc_task)
+            assignments.append(Assignment(malloc_id, device_id))
+
+            # Treat this malloc task as the producer of the input tensor
+            tensor_producers[input_name] = malloc_id
+
         for idx, node in enumerate(self.graph.graph.node):
             workload = self.simulator_factory(node, idx, self.device_config)
             task_id = workload.id
@@ -143,7 +160,7 @@ class Scheduler:
                         free_op = FreeSimulator(
                             self.device_config,
                             size,
-                            Parameter(input_name, "byte"),
+                            Parameter(input_name, "uint8", (size,)),
                             name=f"free_{input_name}"
                         )
 
