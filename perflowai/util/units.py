@@ -29,10 +29,10 @@ def bandwidth_Bps(device_config: DeviceConfig) -> float:
 def intra_node_bandwidth_Bps(device_config: DeviceConfig) -> float:
     """Convert DeviceConfig.intra_node_bandwidth to B/s."""
 
-    return _gbps_to_Bps(device_config.intra_node_bandwidth)
+    return _gbps_to_Bps(device_config.effective_intra_node_bandwidth())
 
 
 def inter_node_bandwidth_Bps(device_config: DeviceConfig) -> float:
     """Convert DeviceConfig.inter_node_bandwidth to B/s."""
 
-    return _gbps_to_Bps(device_config.inter_node_bandwidth)
+    return _gbps_to_Bps(device_config.effective_inter_node_bandwidth())

@@ -4,7 +4,7 @@ import pytest
 
 from perflowai.core.device import DeviceConfig, DeviceType
 from perflowai.simulator.kernel.kernel_simulator import Parameter
-from perflowai.simulator.network import (
+from perflowai.simulator.comm import (
     AllGatherNetworkSimulator,
     AllReduceNetworkSimulator,
     AllToAllNetworkSimulator,
