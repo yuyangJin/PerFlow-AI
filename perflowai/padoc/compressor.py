@@ -13,7 +13,7 @@ import time
 import re
 from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
-from .node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode, CPUNode, GPUNode, SameCPUNode, KernelNode
+from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelNode, SameKernelNode
 from .event import Event, MergeEvent, is_same_event, memory_breakdown_templates
 from .utils import logger, log_memory_breakdown, log_memory_diff
 
@@ -211,7 +211,7 @@ class TemplateCompressor(Compressor):
         log_memory_diff(logger, before, after)
 
 
-        return CompressedTrace(self.event_templates, ranks, trace.get_metadata())
+        return CompressedTrace(self.event_templates, ranks, trace.get_metadata(), trace.get_start_time())
 
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
@@ -242,84 +242,6 @@ class TemplateCompressor(Compressor):
             final_templates[k] = self._merge_ref(v)
 
         return CompressedTrace(final_templates, all_compressed_ranks, trace.get_metadata())
-
-    def _merge_templates(self, all_templates: Dict[str, TemplateNode],
-                        all_name2id: Dict[str, List[str]]):
-        logger.info("Merging %d templates, before merged have %d templates",
-                    len(self.templates), len(all_templates))
-
-        if all_templates == {}:
-
-            all_templates = self.templates
-
-            all_name2id = self.name2id
-
-            return all_templates, all_name2id
-
-        for k, v in self.templates.items():
-            name = v.get_first_event_name()
-            ids = all_name2id.get(name, [])
-            found = False
-            for i in ids:
-                if all_templates[i].is_same_node(v):
-                    index = all_templates[i].get_node_count()
-                    for ref_node in self.templates_refs[k]:
-                        ref_node.update_template(all_templates[i], index)
-                    all_templates[i].add_nodes([v])
-                    found = True
-                    break
-
-            if not found:
-                print(f"{name} not found, ids: {ids} {k in ids}")
-                next_id = str(len(all_templates))
-                all_templates[next_id] = v
-                all_templates[next_id].id = next_id
-                all_name2id.setdefault(name, []).append(next_id)
-
-        logger.info("After merged have %d templates", len(all_templates))
-
-        return all_templates, all_name2id
-
-    def _merge_ref(self, node: BaseNode) -> BaseNode:
-        if isinstance(node, RefNode) or isinstance(node, GroupRefNode):
-            return node
-
-        new_children: List[BaseNode] = []
-        current_ref_list: List[TemplateNode] = []
-        current_index_list: List[int] = []
-
-        children = node.get_children()
-
-        for child in children:
-            merged_child = self._merge_ref(child)
-
-            if isinstance(merged_child, RefNode):
-                current_ref_list.append(merged_child.ref)
-                current_index_list.append(merged_child.index)
-                pass
-
-            elif isinstance(merged_child, GroupRefNode):
-                current_ref_list.extend(merged_child.ref)
-                current_index_list.extend(merged_child.index)
-                pass
-
-            else:
-
-                if current_ref_list:
-                    group_node = GroupRefNode(current_ref_list, current_index_list)
-                    new_children.append(group_node)
-
-                    current_ref_list = []
-                    current_index_list = []
-
-                new_children.append(merged_child)
-
-        if current_ref_list:
-            group_node = GroupRefNode(current_ref_list, current_index_list)
-            new_children.append(group_node)
-
-        node.set_children(new_children)
-        return node
 
     def _normalize_name(self, name: str) -> str:
         return re.sub(r"\d+", "0", name)
@@ -534,40 +456,6 @@ class TemplateCompressor(Compressor):
             new_node.add_child(temp)
         return new_node
 
-    def _group_same_children(self, node: BaseNode) -> Tuple[List[List[BaseNode]], List[BaseNode]]:
-        children = node.get_children()
-        n = len(children)
-        used = [False] * n
-        groups = []
-
-        for i in range(n):
-            if used[i]:
-                continue
-
-            current_group = [children[i]]
-
-            for j in range(i+1, n):
-                if used[j]:
-                    continue
-
-                debug_flag = "SCH-forward_step" in children[i].get_first_event_name() and "SCH-forward_step" in children[j].get_first_event_name()
-                if debug_flag:
-                    print(f"{debug_flag} {children[i].get_first_event_name()} {children[j].get_first_event_name()}")
-                check_start_time = time.time()
-                is_same = children[i].is_same_node(children[j], debug_flag)
-                self.check_same_node_time += time.time() - check_start_time
-                if is_same:
-                    current_group.append(children[j])
-                    used[j] = True
-
-            if len(current_group) > 1:
-                used[i] = True
-                groups.append(current_group)
-
-        unused = [children[i] for i in range(n) if not used[i]]
-
-        return groups, unused
-
     def _compress_node_new(self, node):
 
         if len(node.get_children()) == 0:
@@ -605,6 +493,9 @@ class TemplateCompressor(Compressor):
         return results
 
     def _build_template(self, group):
+        if group[0].is_kernel_node():
+            return SameKernelNode(group[0].template_index, [n.instance_index for n in group])
+
         tnode = SameCPUNode(group[0].template_index, [n.instance_index for n in group])
 
         group_children = [n.get_children() for n in group]
@@ -741,10 +632,10 @@ class TemplateCompressor(Compressor):
 
         new_rank: Dict[str, Dict[str, Dict[str, Node]]] = {}
         for _, pid, tid, ph, node in compressed_trace.iter_nodes(rank):
-            new_node = Node()
-            events = node.get_all_events()
-            new_node.add_events(events)
-            new_rank.setdefault(pid, {}).setdefault(tid, {})[ph] = new_node
+            events = []
+            for e in node.event_visitor(compressed_trace.event_templates, True):
+                events.append(e)
+            new_rank.setdefault(pid, {}).setdefault(tid, {})[ph] = events
 
         return new_rank
 
@@ -756,7 +647,8 @@ class TemplateCompressor(Compressor):
             rank = compressed_trace.get_ranks()[0]
         new_rank = self._decompress_rank(compressed_trace, rank)
         ranks = {rank: new_rank}
-        trace = Trace(metadata=compressed_trace.get_metadata())
+        trace = Trace(metadata=compressed_trace.get_metadata(), \
+                      start_timestamp=compressed_trace.get_start_time())
         trace.set_ranks(ranks)
         return trace
 

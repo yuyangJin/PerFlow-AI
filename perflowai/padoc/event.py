@@ -65,18 +65,18 @@ class Event:
     """
     __slots__ = ("name", "ts", "cat", "args", "dur", "id", "bp", "s")
 
-    def __init__(self, raw: Dict[str, Any]):
+    def __init__(self, raw: Dict[str, Any] | None = None):
         # 必定存在的字段
-        self.name = raw.get("name", "unknown")
-        self.ts = raw.get("ts", 0)
-        self.cat = raw.get("cat", None)
+        self.name = raw.get("name", "unknown") if raw else "unknown"
+        self.ts = raw.get("ts", 0) if raw else 0
+        self.cat = raw.get("cat", None) if raw else None
 
         # 可选字段
-        self.args = raw.get("args", None)
-        self.dur  = raw.get("dur", None)
-        self.id   = raw.get("id", None)
-        self.bp   = raw.get("bp", None)
-        self.s    = raw.get("s", None)
+        self.args = raw.get("args", None) if raw else None
+        self.dur  = raw.get("dur", None) if raw else None
+        self.id   = raw.get("id", None) if raw else None
+        self.bp   = raw.get("bp", None) if raw else None
+        self.s    = raw.get("s", None) if raw else None
 
     def get_name(self) -> str:
         return self.name
@@ -137,7 +137,7 @@ class MergeEvent:
     def get_event_by_index(self, index: int) -> Event:
         """Get the event at the specified index."""
 
-        event = Event({})
+        event = Event()
         event.ts = SLP.decompress_linear_segment(self.ts, index)
         event.name = SLP.decompress_names(self.name_nums, self.name_pattern, index)
         event.cat = self.cat
@@ -280,8 +280,8 @@ class MergeEvent:
         if len(self.dur) > 0:
             self.dur = SLP.segment_linear_compress(self.dur)
 
-        # if len(self.id) > 0:
-        #     self.id = SLP.compress_tss(self.id)
+        if len(self.id) > 0:
+            self.id = SLP.compress_tss(self.id)
 
         return
 
@@ -313,6 +313,9 @@ class MergeEvent:
         obj = cls.__new__(cls)
         obj.name_pattern = raw["name_pattern"]
         obj.name_nums = raw.get("name", [])
+        for i, v in enumerate(obj.name_nums):
+            if isinstance(v, list):
+                obj.name_nums[i] = np.asarray(v, dtype=np.int64)
         obj.ts = np.asarray(raw.get("ts", []), dtype=np.int64)
         obj.dur = np.asarray(raw.get("dur", []), dtype=np.int64)
         obj.cat = raw.get("cat", None)

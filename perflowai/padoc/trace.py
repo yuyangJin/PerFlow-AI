@@ -30,7 +30,7 @@ import msgpack
 
 from perflowai.padoc.utils import logger, analyze_node_dict
 from perflowai.padoc.event import Event, MergeEvent
-from perflowai.padoc.node import BaseNode, Node, TemplateNode, RefNode, GroupRefNode
+from perflowai.padoc.node import CPUNode, GPUNode, KernelNode, node_from_dict
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -46,11 +46,12 @@ class BaseTrace(ABC):
     of rank → pid → tid → Node.
     """
 
-    def __init__(self, metadata: Dict[str, Dict[str, Any]] | None = None):
+    def __init__(self, metadata: Dict[str, Dict[str, Any]] | None = None,
+                 start_timestamp: Dict[str, int] | None = None):
         self.metadata: Dict[str, Dict[str, Any]] = metadata if metadata else {}
         # rank → pid → tid → ph -> List[Event]
         self.ranks: Dict[str, Dict[str, Dict[str, Dict[str, List[Event]]]]] = {}
-        self.start_timestamp = {}
+        self.start_timestamp = start_timestamp if start_timestamp else {}
 
     def get_metadata(self) -> Dict[str, Any]:
         """Return the trace metadata."""
@@ -83,6 +84,10 @@ class BaseTrace(ABC):
     def set_node(self, rank: str, pid: str, tid: str, ph: str, node: BaseNode):
         """Set the node for the specified rank, pid, tid and phase."""
         self.ranks.setdefault(rank, {}).setdefault(pid, {}).setdefault(tid, {})[ph] = node
+
+    def get_start_time(self) -> Dict[str, int]:
+        """Return the start time of each rank."""
+        return self.start_timestamp
 
     def iter_events(self, rank: Optional[str] = None):
         """Iterate over all events in the trace, optionally filtering by rank."""
@@ -118,8 +123,9 @@ class Trace(BaseTrace):
     """
 
     def __init__(self, events: Dict[str, List[Dict[str, Any]]] | None = None,
-                 metadata: Dict[str, Dict[str, Any]] | None = None):
-        super().__init__(metadata)
+                 metadata: Dict[str, Dict[str, Any]] | None = None,
+                 start_timestamp: Dict[str, int] | None = None):
+        super().__init__(metadata, start_timestamp)
 
         if events:
             for rank, rank_events in events.items():
@@ -142,6 +148,9 @@ class Trace(BaseTrace):
                         category = e.get("cat", "")
                         if category == "gpu_user_annotation":
                             tid = f"stream {tid}"
+
+                    if "Record" in e["name"]:
+                        print(pid, tid)
 
                     rank_layer = self.ranks.setdefault(rank, {})
                     pid_layer = rank_layer.setdefault(str(pid), {})
@@ -208,16 +217,17 @@ class Trace(BaseTrace):
                         for ph, events in phases.items():
                             for e in events:
                                 event_dict = e.to_dict().copy()
-                                event_dict["pid"] = pid
+                                # event_dict["pid"] = pid
                                 t = tid
                                 if t.startswith("stream "):
                                     t = t.split(" ")[1]
                                 if t.endswith("-abnormal"):
                                     t = t.split("-")[0]
 
-                                event_dict["tid"] = t
+                                # event_dict["tid"] = t
                                 event_dict["ph"]  = ph
                                 event_dict["ts"] += self.start_timestamp[r]
+
                                 trace_events.append(event_dict)
 
             trace_events = sorted(
@@ -295,10 +305,11 @@ class CompressedTrace(BaseTrace):
     """
 
     def __init__(self, event_templates: List[MergeEvent],
-                 ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]],
-                 metadata: Dict[str, Any] | None = None):
+                 ranks: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]],
+                 metadata: Dict[str, Any] | None = None,
+                 start_timestamp: Dict[str, int] | None = None):
 
-        super().__init__(metadata)
+        super().__init__(metadata, start_timestamp)
         self.ranks = ranks
 
         self.event_templates: List[MergeEvent] = event_templates
@@ -317,6 +328,15 @@ class CompressedTrace(BaseTrace):
         #     node.show()
         pass
 
+    def iter_nodes(self, rank: Optional[str] = None):
+        """Iterate over all nodes in the trace, optionally filtering by rank."""
+        rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
+        for r, processes in rank_items:
+            for pid, threads in processes.items():
+                for tid, phases in threads.items():
+                    for ph, node in phases.items():
+                        yield r, pid, tid, ph, node
+
     @classmethod
     def from_file(cls, path: str) -> CompressedTrace:
         if path.endswith(".json"):
@@ -326,13 +346,16 @@ class CompressedTrace(BaseTrace):
             with open(path, 'rb') as f:
                 data: Dict[str, Any] = msgpack.load(f, strict_map_key=False)
 
-        templates: Dict[str, TemplateNode] = {}
+        event_templates: List[MergeEvent] = []
         ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
         metadata: Dict[str, Any] = {}
 
-        assert "templates" in data, "Invalid trace format"
+        assert "event_templates" in data, "Invalid trace format"
         assert "ranks" in data, "Invalid trace format"
         assert "metadata" in data, "Invalid trace format"
+
+        for e in data["event_templates"]:
+            event_templates.append(MergeEvent.from_dict(e))
 
         for rank, process_dict in data["ranks"].items():
             ranks[rank] = {}
@@ -341,19 +364,12 @@ class CompressedTrace(BaseTrace):
                 for tid, phase_dict in thread_dict.items():
                     ranks[rank][pid][tid] = {}
                     for ph, node_dict in phase_dict.items():
-                        if "ref_node_id" in node_dict:
-                            ranks[rank][pid][tid][ph] = \
-                                RefNode.from_dict(node_dict, data["templates"], templates)
-                        elif "ref_node_ids" in node_dict:
-                            ranks[rank][pid][tid][ph] = \
-                                GroupRefNode.from_dict(node_dict, data["templates"], templates)
-                        else:
-                            ranks[rank][pid][tid][ph] = \
-                                Node.from_dict(node_dict, data["templates"], templates)
+                        ranks[rank][pid][tid][ph] = node_from_dict(node_dict)
 
         metadata = data["metadata"]
+        start_timestamp = data.get("rank_start_timestamp", {})
 
-        return cls(templates, ranks, metadata)
+        return cls(event_templates, ranks, metadata, start_timestamp)
 
     def write_file(self, path: str, rank: str = "", origin: bool = False):
         out = {}
@@ -361,6 +377,7 @@ class CompressedTrace(BaseTrace):
         out["metadata"] = self.metadata
         out["event_templates"] = [m.to_dict() for m in self.event_templates]
         out["ranks"] = {}
+        out["rank_start_timestamp"] = self.start_timestamp
 
         for r, processes in self.ranks.items():
             out["ranks"][r] = {}

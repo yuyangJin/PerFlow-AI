@@ -95,12 +95,19 @@ class SegmentedLinearPredictorCompressor:
         """Decompress names
         """
 
-        if len(compressed_names) == 0:
+        if not compressed_names:
             return name_pattern
 
-        nums = compressed_names[index]
+        nums = []
+        for col in compressed_names:
+            if isinstance(col, np.ndarray):
+                nums.append(int(col[index]))
+            else:
+                nums.append(int(col))
+
         it = iter(nums)
         return re.sub(r"0", lambda _: str(next(it)), name_pattern)
+
 
     @classmethod
     def compress_same_args(cls, args: Dict[str, List[Any]]) -> None:
@@ -110,26 +117,91 @@ class SegmentedLinearPredictorCompressor:
         for key, value in args.items():
             if not isinstance(value, list):
                 continue
+            if isinstance(value[0], (dict, list, np.ndarray)):
+                continue
             if cls._all_same_args(value):
                 args[key] = [value[0]]
             elif isinstance(value[0], int):
-                args[key] = cls.compress_tss(value)
+                args[key] = cls.compress_values(value)
 
     @classmethod
-    def decompress_same_args(cls, args: Dict[str, List[Any]], index: int) \
-        -> Dict[str, Any]:
+    def compress_values(cls, values: List[Union[int, float]]) -> np.ndarray:
+        """
+        Compress numeric values with minimal dtype:
+        - If any float exists -> float32
+        - Else choose smallest int dtype based on min/max
+        """
+
+        if not values:
+            # 空数组，给个最保守的
+            return np.asarray(values, dtype=np.int64)
+
+        has_float = False
+        min_v = None
+        max_v = None
+
+        # 一次扫描
+        for v in values:
+            if isinstance(v, float):
+                has_float = True
+                break
+            # bool 是 int 的子类，这里显式转 int，避免奇怪行为
+            iv = int(v)
+            if min_v is None:
+                min_v = iv
+                max_v = iv
+            else:
+                if iv < min_v:
+                    min_v = iv
+                elif iv > max_v:
+                    max_v = iv
+
+        # case 1: 有 float
+        if has_float:
+            return np.asarray(values, dtype=np.float32)
+
+        # case 2: 全是 int，根据范围选 dtype
+        if min_v >= np.iinfo(np.int8).min and max_v <= np.iinfo(np.int8).max:
+            dtype = np.int8
+        elif min_v >= np.iinfo(np.int16).min and max_v <= np.iinfo(np.int16).max:
+            dtype = np.int16
+        elif min_v >= np.iinfo(np.int32).min and max_v <= np.iinfo(np.int32).max:
+            dtype = np.int32
+        else:
+            dtype = np.int64  # 兜底
+
+        return np.asarray(values, dtype=dtype)
+
+    @classmethod
+    def decompress_same_args(cls, args: Dict[str, List[Any]] | List[Any], index: int) \
+        -> Dict[str, Any] | Any:
         """Decompress arguments that are the same for all examples.
         """
+        def _maybe_cast_int(v):
+            if isinstance(v, float) and v.is_integer():
+                return int(v)
+            return v
+
+        if isinstance(args, list):
+            if len(args) == 0:
+                return None
+            if isinstance(args[0], (dict, list, np.ndarray)):
+                return [cls.decompress_same_args(v, index) for v in args]
+            return _maybe_cast_int(args[index])
 
         if args is None:
             return None
 
         result = {}
         for key, value in args.items():
-            if len(value) == 1:
-                result[key] = value[0]
+            if isinstance(value, dict):
+                result[key] = cls.decompress_same_args(value, index)
+            elif isinstance(value, list) and isinstance(value[0], (dict, list, np.ndarray)):
+                result[key] = [cls.decompress_same_args(v, index) for v in value]
+            elif len(value) == 1:
+                result[key] = _maybe_cast_int(value[0])
             else:
-                result[key] = value[index]
+                result[key] = _maybe_cast_int(value[index])
 
         return result
     
@@ -148,7 +220,7 @@ class SegmentedLinearPredictorCompressor:
 
     @classmethod
     def compress_tss(cls, tss: List[int]) -> Dict[str, Any]:
-        ts = np.asarray(tss, dtype=np.int64)
+        ts = np.asarray(tss, dtype=np.int32)
         return ts
         n = len(ts)
 

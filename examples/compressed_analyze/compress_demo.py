@@ -98,7 +98,7 @@ def compress_single_rank_demo(input_file: str,
 
     # write the original trace to a file
     print(f"💾 Writing original trace to {origin_file}")
-    trace.write_file(origin_file)
+    trace.write_file(origin_file, origin=True)
 
     # get the original file size
     origin_file_size = os.path.getsize(origin_file)
