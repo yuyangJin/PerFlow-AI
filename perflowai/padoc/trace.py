@@ -29,8 +29,8 @@ from collections import defaultdict
 import msgpack
 
 from perflowai.padoc.utils import logger, analyze_node_dict
-from perflowai.padoc.event import Event, MergeEvent
-from perflowai.padoc.node import CPUNode, GPUNode, KernelNode, node_from_dict
+from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent
+from perflowai.padoc.node import CPUNode, GPUNode, KernelNode, node_from_dict, count_trace_nodes
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -149,9 +149,6 @@ class Trace(BaseTrace):
                         if category == "gpu_user_annotation":
                             tid = f"stream {tid}"
 
-                    if "Record" in e["name"]:
-                        print(pid, tid)
-
                     rank_layer = self.ranks.setdefault(rank, {})
                     pid_layer = rank_layer.setdefault(str(pid), {})
                     tid_layer = pid_layer.setdefault(str(tid), {})
@@ -217,15 +214,18 @@ class Trace(BaseTrace):
                         for ph, events in phases.items():
                             for e in events:
                                 event_dict = e.to_dict().copy()
-                                # event_dict["pid"] = pid
+                                if "pid" not in event_dict:
+                                    event_dict["pid"] = pid
                                 t = tid
                                 if t.startswith("stream "):
                                     t = t.split(" ")[1]
                                 if t.endswith("-abnormal"):
                                     t = t.split("-")[0]
 
-                                # event_dict["tid"] = t
-                                event_dict["ph"]  = ph
+                                if "tid" not in event_dict:
+                                    event_dict["tid"] = t
+                                if "ph" not in event_dict:
+                                    event_dict["ph"]  = ph
                                 event_dict["ts"] += self.start_timestamp[r]
 
                                 trace_events.append(event_dict)
@@ -327,6 +327,7 @@ class CompressedTrace(BaseTrace):
         #     print(r, p, t, ph)
         #     node.show()
         pass
+        count_trace_nodes(self)
 
     def iter_nodes(self, rank: Optional[str] = None):
         """Iterate over all nodes in the trace, optionally filtering by rank."""
@@ -355,7 +356,10 @@ class CompressedTrace(BaseTrace):
         assert "metadata" in data, "Invalid trace format"
 
         for e in data["event_templates"]:
-            event_templates.append(MergeEvent.from_dict(e))
+            if "pid" in e:
+                event_templates.append(MergeKernelEvent.from_dict(e))
+            else:
+                event_templates.append(MergeEvent.from_dict(e))
 
         for rank, process_dict in data["ranks"].items():
             ranks[rank] = {}

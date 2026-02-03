@@ -18,8 +18,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union, Any, Optional, Generator
 import numpy as np
-from .event import Event, MergeEvent, is_same_event
+from .event import Event, MergeEvent, KernelEvent, is_same_event
 from .utils import logger
+from collections import defaultdict
 
 
 class BaseNode(ABC):
@@ -239,8 +240,6 @@ class SameCPUNode:
             yield from it
 
     def event_visitor_index(self, event_templates: List[MergeEvent], index: int = 0, include_kernels: bool = False):
-        if self.template_index == 205:
-            print("!!!!!!", self.instance_index)
 
         yield event_templates[self.template_index].get_event_by_index(self.instance_index[index])
 
@@ -464,3 +463,45 @@ def node_from_dict(d: dict):
         return CPUNode.from_dict(d)
 
     raise ValueError(f"Unknown node dict format: {d}")
+
+def count_nodes(node, counter=None):
+    if counter is None:
+        counter = defaultdict(int)
+
+    # ===== 统计当前节点类型 =====
+    counter[type(node).__name__] += 1
+
+    # ===== CPUNode / SameCPUNode =====
+    if hasattr(node, "children") and node.children:
+        for c in node.children:
+            count_nodes(c, counter)
+
+    if hasattr(node, "slots") and node.slots:
+        # CPUNode: slots = List[Node]
+        if isinstance(node.slots, list) and node.slots and not isinstance(node.slots[0], list):
+            for s in node.slots:
+                count_nodes(s, counter)
+        # SameCPUNode: slots = List[List[Node]]
+        else:
+            for slot in node.slots:
+                for s in slot:
+                    count_nodes(s, counter)
+
+    return counter
+
+def count_trace_nodes(compressed_trace):
+    counter = defaultdict(int)
+
+    for rank in compressed_trace.get_ranks():
+        for _, _, _, _, node in compressed_trace.iter_nodes(rank):
+            count_nodes(node, counter)
+
+    print_node_stats(counter, "Trace Node Statistics")
+
+def print_node_stats(counter, title="Node Statistics"):
+    print(f"\n=== {title} ===")
+    total = sum(counter.values())
+    for k, v in sorted(counter.items()):
+        print(f"{k:15s}: {v}")
+    print(f"{'-'*20}")
+    print(f"{'TOTAL':15s}: {total}")

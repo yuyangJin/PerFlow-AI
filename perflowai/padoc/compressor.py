@@ -14,7 +14,7 @@ import re
 from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
 from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelNode, SameKernelNode
-from .event import Event, MergeEvent, is_same_event, memory_breakdown_templates
+from .event import Event, MergeEvent, KernelEvent, MergeKernelEvent, is_same_event, memory_breakdown_templates
 from .utils import logger, log_memory_breakdown, log_memory_diff
 
 class Compressor(ABC):
@@ -55,7 +55,7 @@ class TemplateCompressor(Compressor):
         super().__init__()
         self.event_templates: List[MergeEvent] = []
         self.name2indexes: Dict[str, List[int]] = defaultdict(list)
-        self.gpu_events: Dict[int, Event] = {}
+        self.gpu_events: Dict[int, KernelEvent] = {}
         self.gpu_visited = set()
         self.templates: Dict[str, TemplateNode] = {}
         self.templates_refs: Dict[str, List[RefNode]] = {}
@@ -106,7 +106,7 @@ class TemplateCompressor(Compressor):
                     self.corr_info_set.add(corr)
                 assert corr not in self.gpu_events, \
                     f"GPU events should not have same correlation {corr}"
-                self.gpu_events[corr] = event
+                self.gpu_events[corr] = KernelEvent(event, pid, tid.split(" ")[1], ph)
 
         logger.info("There are %d GPU events", len(self.gpu_events))
 
@@ -181,22 +181,10 @@ class TemplateCompressor(Compressor):
         compressed_rank = self._compress_rank(trace, rank)
         ranks = {rank: compressed_rank}
 
-        logger.info("Compressing templates")
-        # for tem_node in list(self.templates.values()):
-        #     self._compress_node(tem_node, self.templates, self.name2id)
         for id, tem in self.templates.items():
             print(f"template {id}:")
             tem.show()
-        logger.info("After compressing, have %d templates", len(self.templates))
-
-        # for k, v in self.templates.items():
-        #     self.templates[k] = self._merge_ref(v)
-
-        # for _, compressed_ranks in ranks.items():
-        #     for _, tids in compressed_ranks.items():
-        #         for _, phs in tids.items():
-        #             for ph, node in phs.items():
-        #                 phs[ph] = self._merge_ref(node)
+        logger.info("After compressing, have %d templates", len(self.event_templates))
 
         before = memory_breakdown_templates(self.event_templates)
 
@@ -256,7 +244,11 @@ class TemplateCompressor(Compressor):
 
     def _create_event_template(self, e: Event) -> int:
         index = len(self.event_templates)
-        tmpl = MergeEvent([e])
+        tmpl = None
+        if isinstance(e, Event):
+            tmpl = MergeEvent([e])
+        elif isinstance(e, KernelEvent):
+            tmpl = MergeKernelEvent([e])
         self.event_templates.append(tmpl)
         self.name2indexes[self._normalize_name(e.get_name())].append(index)
         return index
@@ -620,12 +612,6 @@ class TemplateCompressor(Compressor):
 
         return matched, unmatched
 
-    def _flatten_slots(self, slots: List[List[Node]]) -> List[Node]:
-        flat = []
-        for s in slots:
-            flat.extend(s)
-        return flat
-
     def _decompress_rank(self, compressed_trace: BaseTrace, rank: str):
         assert isinstance(compressed_trace, CompressedTrace), \
             "Compressed trace must be of type CompressedTrace"
@@ -634,6 +620,8 @@ class TemplateCompressor(Compressor):
         for _, pid, tid, ph, node in compressed_trace.iter_nodes(rank):
             events = []
             for e in node.event_visitor(compressed_trace.event_templates, True):
+                if is_same_event(e, KernelEvent):
+                    print("bbbbbb")
                 events.append(e)
             new_rank.setdefault(pid, {}).setdefault(tid, {})[ph] = events
 
