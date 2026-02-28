@@ -15,7 +15,7 @@ from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
 from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelLaunchNode, KernelsLaunchNode
 from .event import Event, MergeEvent, KernelEvent, MergeKernelEvent, is_same_event, memory_breakdown_templates
-from .utils import logger, log_memory_breakdown, log_memory_diff
+from .utils import logger, log_memory_diff
 
 class Compressor(ABC):
     """Abstract base class for all compressors.
@@ -170,11 +170,6 @@ class TemplateCompressor(Compressor):
             compressed_ranks[str(pid)][str(tid)][ph] = root
 
         compress_time = time.time() - strat_time
-        logger.info("There are %d templates, cost %.3f s", len(self.templates), compress_time)
-        logger.info("Build tree cost %.3f s, find template cost %.3f s, " \
-            "compress tree cost %.3f s, check same node cost %.3f s", \
-            self.build_tree_time, self.find_template_time, \
-            self.compress_tree_time, self.check_same_node_time)
 
         return compressed_ranks
 
@@ -193,9 +188,6 @@ class TemplateCompressor(Compressor):
             m.compress_values()
 
         after = memory_breakdown_templates(self.event_templates)
-
-        logger.info("=== Template memory AFTER value compression ===")
-        log_memory_breakdown(logger, after)
 
         log_memory_diff(logger, before, after)
 
@@ -222,8 +214,6 @@ class TemplateCompressor(Compressor):
 
         after = memory_breakdown_templates(self.event_templates)
 
-        logger.info("=== Template memory AFTER value compression ===")
-        log_memory_breakdown(logger, after)
         log_memory_diff(logger, before, after)
 
         return CompressedTrace(
@@ -347,17 +337,6 @@ class TemplateCompressor(Compressor):
             t_gpu = time.perf_counter() - t_gpu_start
             t_total = time.perf_counter() - t_build_start
 
-            logger.info(
-                "[BUILD GPU TREE] events=%d | total=%.3f ms | sort=%.3f ms | "
-                "_add_event=%.3f ms (%d calls) | skipped_corr=%d",
-                len(events),
-                t_total * 1e3,
-                t_sort * 1e3,
-                add_event_time * 1e3,
-                add_event_calls,
-                skipped_corr,
-            )
-
             return gpu_node, None
 
         # ========================
@@ -438,18 +417,6 @@ class TemplateCompressor(Compressor):
 
         t_cpu = time.perf_counter() - t_cpu_start
         t_total = time.perf_counter() - t_build_start
-
-        logger.info(
-            "[BUILD CPU TREE] events=%d | total=%.3f ms | sort=%.3f ms | "
-            "_add_event=%.3f ms (%d calls) | cpu_build=%.3f ms | abnormal=%s",
-            len(events),
-            t_total * 1e3,
-            t_sort * 1e3,
-            add_event_time * 1e3,
-            add_event_calls,
-            t_cpu * 1e3,
-            abnormal_ref_root is not None,
-        )
 
         root = self._compress_node_new(root)
 

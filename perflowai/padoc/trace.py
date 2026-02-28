@@ -27,9 +27,10 @@ from abc import ABC, abstractmethod
 import os
 from collections import defaultdict
 import msgpack
+from pympler import asizeof
 
 from perflowai.padoc.utils import logger, analyze_node_dict
-from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent
+from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent, memory_breakdown_templates
 from perflowai.padoc.node import (
     CPUNode,
     GPUNode,
@@ -323,19 +324,32 @@ class CompressedTrace(BaseTrace):
         if self.ranks:
             self.build_launch_indexes()
 
-    def compress_templates_values(self) -> None:
-        """Compress the values of templates."""
-        # for node in self.templates.values():
-            # node.try_compress_args_id()
-            # node.compress_event_values()
+    def show_memory(self) -> None:
+        core_parts = {
+            "event_templates": asizeof.asizeof(self.event_templates),
+            "ranks": asizeof.asizeof(self.ranks),
+            "metadata": asizeof.asizeof(self.metadata),
+            "start_timestamp": asizeof.asizeof(self.start_timestamp),
+            "launch_indexes": asizeof.asizeof(self._launch_indexes),
+        }
+        total_core = sum(core_parts.values())
 
-        # self.ranks = {}
-        # analyze_node_dict(self.ranks)
-        # for r, p, t, ph, node in self.iter_events():
-        #     print("="*20)
-        #     print(r, p, t, ph)
-        #     node.show()
-        pass
+        print("\n=== CompressedTrace Core Memory ===")
+        for name, size in sorted(core_parts.items(), key=lambda x: x[1], reverse=True):
+            pct = (size / total_core * 100.0) if total_core > 0 else 0.0
+            print(f"{name:16s}: {size / 1024 / 1024:8.2f} MB ({pct:5.1f}%)")
+        print(f"{'total':16s}: {total_core / 1024 / 1024:8.2f} MB (100.0%)")
+
+        tmpl_mem = memory_breakdown_templates(self.event_templates)
+        tmpl_total = tmpl_mem.get("total", 0)
+        print("\n=== Event Templates Breakdown ===")
+        for name, size in sorted(tmpl_mem.items()):
+            if name == "total":
+                continue
+            pct = (size / tmpl_total * 100.0) if tmpl_total > 0 else 0.0
+            print(f"{name:16s}: {size / 1024 / 1024:8.2f} MB ({pct:5.1f}%)")
+        print(f"{'total':16s}: {tmpl_total / 1024 / 1024:8.2f} MB (100.0%)")
+
         count_trace_nodes(self)
 
     def set_ranks(self, ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]]):

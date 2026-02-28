@@ -91,6 +91,25 @@ def log_memory_diff(logger, before, after):
         )
 
 
+def log_memory_reduction_summary(logger, before, after, title: str = "Template value compression summary"):
+    total_before = before.get("total", sum(before.values()))
+    total_after = after.get("total", sum(after.values()))
+
+    delta = total_after - total_before
+    pct = abs(delta) / total_before * 100 if total_before > 0 else 0.0
+    arrow = "↓" if delta < 0 else "↑"
+
+    logger.info(
+        "%s: %.2f MB -> %.2f MB (%s%.1f%%, %.2f MB)",
+        title,
+        total_before / 1024 / 1024,
+        total_after / 1024 / 1024,
+        arrow,
+        pct,
+        abs(delta) / 1024 / 1024,
+    )
+
+
 def analyze_node_dict(node_dict):
     """
     Analyze nested dict of nodes without double-counting memory

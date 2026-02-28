@@ -32,6 +32,25 @@ def get_original_json_mem_size(input_file):
     mem_size = asizeof.asizeof(original_data_structure)
     return mem_size
 
+def get_dir_json_mem_size(dir_path):
+    """
+    遍历目录下所有 JSON 文件，计算它们加载到内存后的总大小。
+    返回总字节数。
+    """
+    total_mem_size = 0
+
+    for root, _, files in os.walk(dir_path):
+        for file in files:
+            if file.endswith(".json"):
+                file_path = os.path.join(root, file)
+                try:
+                    size = get_original_json_mem_size(file_path)
+                    total_mem_size += size
+                except Exception as e:
+                    print(f"读取失败: {file_path}, 错误: {e}")
+
+    return total_mem_size
+
 
 def compress_single_rank_demo(input_file: str,
                               origin_file: str,
@@ -108,7 +127,7 @@ def compress_single_rank_demo(input_file: str,
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.intra_compress(trace)
-    compressed_trace.compress_templates_values()
+    compressed_trace.show_memory()
 
     # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)
@@ -175,8 +194,11 @@ def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, 
     else:
         file_type = "bin"
 
-    trace_size_mem = asizeof.asizeof(trace)
+    trace_size_mem = get_dir_json_mem_size(input_dir)
     print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
+
+    o_trace_size_mem = asizeof.asizeof(trace)
+    print(f"🧠 Original Trace memory size: {o_trace_size_mem / 1024 / 1024:.2f} MB")
 
     # write the original trace to a directory
     print(f"💾 Writing original trace to {origin_dir}")
@@ -191,7 +213,7 @@ def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, 
     print("⚙️ Compressing trace ...")
     compressor = TemplateCompressor()
     compressed_trace = compressor.inter_compress(trace)
-    compressed_trace.compress_templates_values()
+    compressed_trace.show_memory()
 
     # get the compressed trace memory size
     compressed_size_mem = asizeof.asizeof(compressed_trace)

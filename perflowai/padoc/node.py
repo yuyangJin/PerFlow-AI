@@ -18,6 +18,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Union, Any, Optional, Generator, Tuple
 import numpy as np
+import sys
+import struct
 from .event import Event, MergeEvent, KernelEvent, is_same_event
 from .utils import logger
 from collections import defaultdict
@@ -584,44 +586,133 @@ class LaunchSubtreeIndex:
 def build_launch_subtree_index(root) -> LaunchSubtreeIndex:
     return LaunchSubtreeIndex(root)
 
-def count_nodes(node, counter=None):
+_EMPTY_LIST_SIZE = sys.getsizeof([])
+_PTR_SIZE = struct.calcsize("P")
+
+
+def _list_ref_memory(lst) -> int:
+    if lst is None:
+        return 0
+    return _EMPTY_LIST_SIZE + len(lst) * _PTR_SIZE
+
+
+def _node_shallow_memory(node) -> int:
+    return sum(_node_shallow_memory_breakdown(node).values())
+
+
+def _node_shallow_memory_breakdown(node) -> Dict[str, int]:
+    breakdown: Dict[str, int] = defaultdict(int)
+
+    breakdown["object"] += sys.getsizeof(node)
+
+    if hasattr(node, "__slots__"):
+        for slot in node.__slots__:
+            if slot in ("children", "slots"):
+                continue
+            try:
+                value = getattr(node, slot)
+            except AttributeError:
+                continue
+            breakdown[slot] += sys.getsizeof(value)
+
+    children = getattr(node, "children", None)
+    if children is not None:
+        breakdown["children_refs"] += _list_ref_memory(children)
+
+    slots = getattr(node, "slots", None)
+    if slots is not None:
+        breakdown["slots_refs"] += _list_ref_memory(slots)
+        if isinstance(slots, list):
+            for inner in slots:
+                if isinstance(inner, list):
+                    breakdown["slots_inner_refs"] += _list_ref_memory(inner)
+
+    return breakdown
+
+
+def count_nodes(node, counter=None, type_memory=None, seen=None, type_field_memory=None):
     if counter is None:
         counter = defaultdict(int)
+    if type_memory is None:
+        type_memory = defaultdict(int)
+    if seen is None:
+        seen = set()
+    if type_field_memory is None:
+        type_field_memory = defaultdict(lambda: defaultdict(int))
+
+    oid = id(node)
+    if oid in seen:
+        return counter, type_memory
+    seen.add(oid)
 
     # ===== 统计当前节点类型 =====
-    counter[type(node).__name__] += 1
+    cls_name = type(node).__name__
+    counter[cls_name] += 1
+    field_breakdown = _node_shallow_memory_breakdown(node)
+    type_memory[cls_name] += sum(field_breakdown.values())
+    for field, sz in field_breakdown.items():
+        type_field_memory[cls_name][field] += sz
 
     # ===== CPUNode / SameCPUNode =====
     if hasattr(node, "children") and node.children:
         for c in node.children:
-            count_nodes(c, counter)
+            count_nodes(c, counter, type_memory, seen, type_field_memory)
 
     if hasattr(node, "slots") and node.slots:
         # CPUNode: slots = List[Node]
         if isinstance(node.slots, list) and node.slots and not isinstance(node.slots[0], list):
             for s in node.slots:
-                count_nodes(s, counter)
+                count_nodes(s, counter, type_memory, seen, type_field_memory)
         # SameCPUNode: slots = List[List[Node]]
         else:
             for slot in node.slots:
                 for s in slot:
-                    count_nodes(s, counter)
+                    count_nodes(s, counter, type_memory, seen, type_field_memory)
 
-    return counter
+    return counter, type_memory, type_field_memory
+
 
 def count_trace_nodes(compressed_trace):
     counter = defaultdict(int)
+    type_memory = defaultdict(int)
+    type_field_memory = defaultdict(lambda: defaultdict(int))
+    seen = set()
 
     for rank in compressed_trace.get_ranks():
         for _, _, _, _, node in compressed_trace.iter_nodes(rank):
-            count_nodes(node, counter)
+            count_nodes(node, counter, type_memory, seen, type_field_memory)
 
-    print_node_stats(counter, "Trace Node Statistics")
+    print_node_stats(counter, "Trace Node Statistics", type_memory, type_field_memory)
+    return counter, type_memory, type_field_memory
 
-def print_node_stats(counter, title="Node Statistics"):
+
+def print_node_stats(counter, title="Node Statistics", type_memory=None, type_field_memory=None):
     print(f"\n=== {title} ===")
     total = sum(counter.values())
+    total_mem = 0 if type_memory is None else sum(type_memory.values())
     for k, v in sorted(counter.items()):
-        print(f"{k:15s}: {v}")
+        if type_memory is None:
+            print(f"{k:15s}: {v}")
+        else:
+            mem_mb = type_memory[k] / 1024 / 1024
+            avg_kb = (type_memory[k] / v / 1024) if v > 0 else 0.0
+            print(f"{k:15s}: count={v:8d}, mem={mem_mb:8.2f} MB, avg={avg_kb:8.2f} KB")
     print(f"{'-'*20}")
-    print(f"{'TOTAL':15s}: {total}")
+    if type_memory is None:
+        print(f"{'TOTAL':15s}: {total}")
+    else:
+        print(f"{'TOTAL':15s}: count={total:8d}, mem={total_mem / 1024 / 1024:8.2f} MB")
+
+    if type_field_memory is not None and "SameCPUNode" in type_field_memory:
+        same_count = counter.get("SameCPUNode", 0)
+        if same_count > 0:
+            print("\n=== SameCPUNode Memory Breakdown (Shallow + Refs) ===")
+            fields = type_field_memory["SameCPUNode"]
+            total_same = sum(fields.values())
+            for field, sz in sorted(fields.items(), key=lambda x: x[1], reverse=True):
+                pct = (sz / total_same * 100.0) if total_same > 0 else 0.0
+                avg_kb = sz / same_count / 1024.0
+                print(
+                    f"{field:16s}: {sz / 1024 / 1024:8.2f} MB "
+                    f"({pct:5.1f}%), avg={avg_kb:8.2f} KB/node"
+                )
