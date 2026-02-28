@@ -16,7 +16,7 @@ using a unified API.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Union, Any, Optional, Generator
+from typing import List, Dict, Union, Any, Optional, Generator, Tuple
 import numpy as np
 from .event import Event, MergeEvent, KernelEvent, is_same_event
 from .utils import logger
@@ -122,13 +122,14 @@ class Node(BaseNode):
 
 class CPUNode:
 
-    __slots__ = ["template_index", "instance_index", "children", "slots"]
+    __slots__ = ["template_index", "instance_index", "children", "slots", "launch_range"]
 
     def __init__(self, template_index: int, instance_index: int):
         self.template_index = template_index
         self.instance_index = instance_index
         self.children = None
         self.slots = None
+        self.launch_range = None
 
     def add_child(self, child):
         if self.children is None:
@@ -219,13 +220,14 @@ class CPUNode:
 
 class SameCPUNode:
 
-    __slots__ = ["template_index", "instance_index", "children", "slots"]
+    __slots__ = ["template_index", "instance_index", "children", "slots", "launch_range"]
 
     def __init__(self, template_index: int, instance_index: list):
         self.template_index = template_index
         self.instance_index = np.asarray(instance_index, dtype=np.int32)
         self.children = None
         self.slots = None
+        self.launch_range = None
 
     def add_child(self, child):
         if self.children is None:
@@ -318,13 +320,21 @@ class SameCPUNode:
                 child.show(indent + 1)
 
 
-class KernelNode:
+class KernelLaunchNode:
+    __slots__ = ["template_index", "instance_index", "gpu_template_index", "gpu_instance_index"]
 
-    __slots__ = ["template_index", "instance_index"]
-
-    def __init__(self, template_index: int, instance_index: int):
+    def __init__(
+        self,
+        template_index: int,
+        instance_index: int,
+        gpu_template_index: int,
+        gpu_instance_index: int,
+    ):
+        # template/instance describe CPU launch event; gpu_* indexes point to related GPU event.
         self.template_index = template_index
         self.instance_index = instance_index
+        self.gpu_template_index = gpu_template_index
+        self.gpu_instance_index = gpu_instance_index
 
     def get_children(self):
         return []
@@ -334,34 +344,49 @@ class KernelNode:
 
     def event_visitor(self, event_templates: List[MergeEvent], include_kernels: bool = False):
         if include_kernels:
-            yield event_templates[self.template_index].get_event_by_index(self.instance_index)
+            yield event_templates[self.gpu_template_index].get_event_by_index(self.gpu_instance_index)
 
     @classmethod
     def from_dict(cls, d: dict):
+        gpu_template_index = d["gt"] if "gt" in d else d["k"]
+        gpu_instance_index = d["gi"] if "gi" in d else d["i"]
         return cls(
             template_index=d["k"],
             instance_index=d["i"],
+            gpu_template_index=gpu_template_index,
+            gpu_instance_index=gpu_instance_index,
         )
 
     def to_dict(self):
         return {
             "k": self.template_index,
             "i": self.instance_index,
+            "gt": self.gpu_template_index,
+            "gi": self.gpu_instance_index,
         }
 
     # ===== show 函数 =====
     def show(self, indent=0):
         prefix = "  " * indent
-        print(f"{prefix}KernelNode(template_index={self.template_index}, \
-              instance_index={self.instance_index})")
+        print(f"{prefix}KernelLaunchNode(template_index={self.template_index}, \
+              instance_index={self.instance_index}, gpu_template_index={self.gpu_template_index}, \
+              gpu_instance_index={self.gpu_instance_index})")
 
 
-class SameKernelNode:
-    __slots__ = ["template_index", "instance_index"]
+class KernelsLaunchNode:
+    __slots__ = ["template_index", "instance_index", "gpu_template_index", "gpu_instance_index"]
 
-    def __init__(self, template_index: int, instance_index: list):
+    def __init__(
+        self,
+        template_index: int,
+        instance_index: list,
+        gpu_template_index: list,
+        gpu_instance_index: list,
+    ):
         self.template_index = template_index
         self.instance_index = np.asarray(instance_index, dtype=np.int32)
+        self.gpu_template_index = np.asarray(gpu_template_index, dtype=np.int32)
+        self.gpu_instance_index = np.asarray(gpu_instance_index, dtype=np.int32)
 
     def get_children(self):
         return []
@@ -371,69 +396,76 @@ class SameKernelNode:
 
     def event_visitor_index(self, event_templates: List[MergeEvent], index: int = 0, include_kernels: bool = False):
         if include_kernels:
-            yield event_templates[self.template_index].get_event_by_index(self.instance_index[index])
+            yield event_templates[self.gpu_template_index[index]].get_event_by_index(self.gpu_instance_index[index])
 
     def event_visitor(self, event_templates: List[MergeEvent], include_kernels: bool = False):
         if include_kernels:
             for index in range(len(self.instance_index)):
-                yield from self.event_visitor_index(event_templates, index)
+                yield from self.event_visitor_index(event_templates, index, include_kernels)
 
     @classmethod
     def from_dict(cls, d: dict):
+        gpu_template_index = d["gt"] if "gt" in d else d["k"]
+        gpu_instance_index = d["gi"] if "gi" in d else d["i"]
         return cls(
             template_index=d["k"],
             instance_index=d["i"],
+            gpu_template_index=gpu_template_index,
+            gpu_instance_index=gpu_instance_index,
         )
 
     def to_dict(self):
         return {
             "k": self.template_index,
             "i": self.instance_index.tolist(),
+            "gt": self.gpu_template_index.tolist(),
+            "gi": self.gpu_instance_index.tolist(),
         }
 
     # ===== show 函数 =====
     def show(self, indent=0):
         prefix = "  " * indent
-        print(f"{prefix}GroupKernelNode(template_index={self.template_index}, \
+        print(f"{prefix}KernelsLaunchNode(template_index={self.template_index}, \
               instance_index_len={len(self.instance_index)})")
 
 class GPUNode:
 
-    __slots__ = ["template_index", "instance_index", "event_start"]
+    __slots__ = ["template_index", "instance_index"]
 
     def __init__(self):
-        self.template_index = []
-        self.instance_index = []
-        self.event_start = None
+        self.template_index = np.empty(0, dtype=np.int32)
+        self.instance_index = np.empty(0, dtype=np.int32)
+
+    def set_events(self, template_index, instance_index):
+        self.template_index = np.asarray(template_index, dtype=np.int32)
+        self.instance_index = np.asarray(instance_index, dtype=np.int32)
 
     def add_event(self, template_index, instance_index):
-        self.template_index.append(template_index)
-        self.instance_index.append(instance_index)
+        # Keep backward compatibility for call sites that still append one-by-one.
+        self.template_index = np.append(self.template_index, np.int32(template_index))
+        self.instance_index = np.append(self.instance_index, np.int32(instance_index))
 
     def is_kernel_node(self):
         return False
 
-    def set_start_event(self, event_start):
-        self.event_start = event_start
-
     def event_visitor(self, event_templates: List[MergeEvent], include_kernels: bool = False):
-        if False:
-            yield None
-
+        for index in range(len(self.template_index)):
+            yield event_templates[int(self.template_index[index])].get_event_by_index(
+                int(self.instance_index[index])
+            )
 
     @classmethod
     def from_dict(cls, d: dict):
         node = cls()
-        node.template_index = list(d["t"])
-        node.instance_index = list(d["i"])
-        node.event_start = d.get("e", None)
+        node.template_index = np.atleast_1d(np.asarray(d["t"], dtype=np.int32))
+        node.instance_index = np.atleast_1d(np.asarray(d["i"], dtype=np.int32))
         return node
 
     def to_dict(self):
         return {
-            "t": self.template_index,
-            "i": self.instance_index,
-            "e": None
+            "g": 1,
+            "t": self.template_index.tolist(),
+            "i": self.instance_index.tolist(),
         }
 
     # ===== show 函数 =====
@@ -446,15 +478,14 @@ def node_from_dict(d: dict):
     根据 dict 的结构判断 Node 类型，并调用对应 from_dict
     """
 
-    if "e" in d:
+    if d.get("g", 0) == 1 or "e" in d:
         return GPUNode.from_dict(d)
 
 
     if "k" in d:
         if isinstance(d.get("i"), list):
-            return SameKernelNode.from_dict(d)
-        else:
-            return KernelNode.from_dict(d)
+            return KernelsLaunchNode.from_dict(d)
+        return KernelLaunchNode.from_dict(d)
 
     if isinstance(d.get("i"), list):
         return SameCPUNode.from_dict(d)
@@ -463,6 +494,95 @@ def node_from_dict(d: dict):
         return CPUNode.from_dict(d)
 
     raise ValueError(f"Unknown node dict format: {d}")
+
+
+class LaunchSubtreeIndex:
+    """Index launch nodes by subtree range for fast repeated lookups.
+
+    Build once from a root node, then query any node under that root in O(1)+O(K),
+    where K is the number of launch nodes in the queried subtree.
+    """
+
+    __slots__ = ["root", "_launch_nodes"]
+
+    def __init__(self, root):
+        self.root = root
+        self._launch_nodes: List[Union[KernelLaunchNode, KernelsLaunchNode]] = []
+        self._build(root)
+
+    @staticmethod
+    def _is_launch_node(node: Any) -> bool:
+        return isinstance(node, (KernelLaunchNode, KernelsLaunchNode))
+
+    def _children_iter(self, node: Any):
+        children = getattr(node, "children", None)
+        if children:
+            for child in children:
+                yield child
+
+        slots = getattr(node, "slots", None)
+        if not slots:
+            return
+
+        first = slots[0]
+        if isinstance(first, list):
+            for slot in slots:
+                for child in slot:
+                    yield child
+            return
+
+        for child in slots:
+            yield child
+
+    def _build(self, node: Any) -> None:
+        if self._is_launch_node(node):
+            self._launch_nodes.append(node)
+            return
+
+        children = list(self._children_iter(node))
+        if not children:
+            if hasattr(node, "launch_range"):
+                node.launch_range = None
+            return
+
+        start = len(self._launch_nodes)
+        for child in children:
+            self._build(child)
+
+        if hasattr(node, "launch_range"):
+            node.launch_range = (start, len(self._launch_nodes))
+
+    def has_node(self, node: Any) -> bool:
+        if self._is_launch_node(node):
+            return True
+        return hasattr(node, "launch_range")
+
+    def get_range(self, node: Any = None) -> Tuple[int, int]:
+        target = self.root if node is None else node
+        launch_range = getattr(target, "launch_range", None)
+        if launch_range is None:
+            return (0, 0)
+        return launch_range
+
+    def get_launch_nodes(self, node: Any = None) -> List[Union[KernelLaunchNode, KernelsLaunchNode]]:
+        target = self.root if node is None else node
+        if self._is_launch_node(target):
+            return [target]
+        start, end = self.get_range(node)
+        return self._launch_nodes[start:end]
+
+    def iter_launch_nodes(self, node: Any = None):
+        target = self.root if node is None else node
+        if self._is_launch_node(target):
+            yield target
+            return
+        start, end = self.get_range(node)
+        for i in range(start, end):
+            yield self._launch_nodes[i]
+
+
+def build_launch_subtree_index(root) -> LaunchSubtreeIndex:
+    return LaunchSubtreeIndex(root)
 
 def count_nodes(node, counter=None):
     if counter is None:

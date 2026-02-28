@@ -13,7 +13,7 @@ import time
 import re
 from collections import defaultdict
 from .trace import BaseTrace, Trace, CompressedTrace
-from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelNode, SameKernelNode
+from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelLaunchNode, KernelsLaunchNode
 from .event import Event, MergeEvent, KernelEvent, MergeKernelEvent, is_same_event, memory_breakdown_templates
 from .utils import logger, log_memory_breakdown, log_memory_diff
 
@@ -77,6 +77,11 @@ class TemplateCompressor(Compressor):
         self.compress_tree_time = 0
         self.find_template_time = 0
         self.check_same_node_time = 0
+        self.gpu_events = {}
+        self.gpu_visited = set()
+        self.corr2node = {}
+        self.corr_info = {}
+        self.corr_info_set = set()
 
         strat_time = time.time()
 
@@ -162,7 +167,6 @@ class TemplateCompressor(Compressor):
             conpress_start_time = time.time()
             # root = self._compress_node_new(root, self.templates, self.name2id)
             self.compress_tree_time += time.time() - conpress_start_time
-            root.set_start_event(self.corr2node[self.corr_info[(rank, pid, tid, ph)]])
             compressed_ranks[str(pid)][str(tid)][ph] = root
 
         compress_time = time.time() - strat_time
@@ -181,9 +185,6 @@ class TemplateCompressor(Compressor):
         compressed_rank = self._compress_rank(trace, rank)
         ranks = {rank: compressed_rank}
 
-        for id, tem in self.templates.items():
-            print(f"template {id}:")
-            tem.show()
         logger.info("After compressing, have %d templates", len(self.event_templates))
 
         before = memory_breakdown_templates(self.event_templates)
@@ -204,32 +205,33 @@ class TemplateCompressor(Compressor):
     def inter_compress(self, trace: BaseTrace) -> BaseTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
 
-        self.templates = {}
-        final_templates: Dict[str, TemplateNode] = {}
-        all_name2id: Dict[str, List[str]] = {}
+        self.event_templates = []
+        self.name2indexes = defaultdict(list)
         all_compressed_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
 
         for rank in trace.get_ranks():
             compressed_ranks = self._compress_rank(trace, rank)
             all_compressed_ranks[rank] = compressed_ranks
-            final_templates, all_name2id = self._merge_templates(final_templates, all_name2id)
 
-        logger.info("After merging, have %d templates, start compressing templates", \
-                    len(final_templates))
+        logger.info("After compressing all ranks, have %d templates", len(self.event_templates))
 
-        for tem_node in list(final_templates.values()):
-            self._compress_node(tem_node, final_templates, all_name2id)
+        before = memory_breakdown_templates(self.event_templates)
 
-        for _, compressed_ranks in all_compressed_ranks.items():
-            for _, tids in compressed_ranks.items():
-                for _, phs in tids.items():
-                    for ph, node in phs.items():
-                        phs[ph] = self._merge_ref(node)
+        for m in self.event_templates:
+            m.compress_values()
 
-        for k, v in final_templates.items():
-            final_templates[k] = self._merge_ref(v)
+        after = memory_breakdown_templates(self.event_templates)
 
-        return CompressedTrace(final_templates, all_compressed_ranks, trace.get_metadata())
+        logger.info("=== Template memory AFTER value compression ===")
+        log_memory_breakdown(logger, after)
+        log_memory_diff(logger, before, after)
+
+        return CompressedTrace(
+            self.event_templates,
+            all_compressed_ranks,
+            trace.get_metadata(),
+            trace.get_start_time(),
+        )
 
     def _normalize_name(self, name: str) -> str:
         return re.sub(r"\d+", "0", name)
@@ -318,6 +320,8 @@ class TemplateCompressor(Compressor):
             t_gpu_start = time.perf_counter()
 
             gpu_node = GPUNode()
+            gpu_template_indexes = []
+            gpu_instance_indexes = []
 
             skipped_corr = 0
 
@@ -325,7 +329,8 @@ class TemplateCompressor(Compressor):
                 args = e.args
                 if args is None:
                     temp_index, inst_id = timed_add_event(e)
-                    gpu_node.add_event(temp_index, inst_id)
+                    gpu_template_indexes.append(temp_index)
+                    gpu_instance_indexes.append(inst_id)
                     continue
 
                 corr = args.get("correlation", None)
@@ -334,7 +339,10 @@ class TemplateCompressor(Compressor):
                     continue
 
                 temp_index, inst_id = timed_add_event(e)
-                gpu_node.add_event(temp_index, inst_id)
+                gpu_template_indexes.append(temp_index)
+                gpu_instance_indexes.append(inst_id)
+
+            gpu_node.set_events(gpu_template_indexes, gpu_instance_indexes)
 
             t_gpu = time.perf_counter() - t_gpu_start
             t_total = time.perf_counter() - t_build_start
@@ -379,16 +387,23 @@ class TemplateCompressor(Compressor):
 
             new_node = Node(events=[e])
 
-            temp_index, inst_id = timed_add_event(e)
-            new_ref_node = CPUNode(temp_index, inst_id)
+            cpu_template_index, cpu_instance_index = timed_add_event(e)
+            new_ref_node = CPUNode(cpu_template_index, cpu_instance_index)
 
             e_args = e.args
             if e_args is not None and "correlation" in e_args:
                 corr = e_args["correlation"]
                 if corr in self.gpu_events:
                     self.gpu_visited.add(corr)
-                    temp_index, inst_id = timed_add_event(self.gpu_events[corr])
-                    new_ref_node.add_child(KernelNode(temp_index, inst_id))
+                    gpu_template_index, gpu_instance_index = timed_add_event(self.gpu_events[corr])
+                    new_ref_node.add_child(
+                        KernelLaunchNode(
+                            template_index=cpu_template_index,
+                            instance_index=cpu_instance_index,
+                            gpu_template_index=gpu_template_index,
+                            gpu_instance_index=gpu_instance_index,
+                        )
+                    )
                     if corr in self.corr_info_set:
                         self.corr2node[corr] = new_ref_node
 
@@ -486,7 +501,12 @@ class TemplateCompressor(Compressor):
 
     def _build_template(self, group):
         if group[0].is_kernel_node():
-            return SameKernelNode(group[0].template_index, [n.instance_index for n in group])
+            return KernelsLaunchNode(
+                group[0].template_index,
+                [n.instance_index for n in group],
+                [n.gpu_template_index for n in group],
+                [n.gpu_instance_index for n in group],
+            )
 
         tnode = SameCPUNode(group[0].template_index, [n.instance_index for n in group])
 
@@ -650,6 +670,9 @@ class TemplateCompressor(Compressor):
             new_rank = self._decompress_rank(compressed_trace, rank)
             all_ranks[rank] = new_rank
 
-        trace = Trace(metadata=compressed_trace.get_metadata())
+        trace = Trace(
+            metadata=compressed_trace.get_metadata(),
+            start_timestamp=compressed_trace.get_start_time(),
+        )
         trace.set_ranks(all_ranks)
         return trace

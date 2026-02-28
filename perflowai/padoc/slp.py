@@ -177,17 +177,13 @@ class SegmentedLinearPredictorCompressor:
         -> Dict[str, Any] | Any:
         """Decompress arguments that are the same for all examples.
         """
-        def _maybe_cast_int(v):
-            if isinstance(v, float) and v.is_integer():
-                return int(v)
-            return v
 
         if isinstance(args, list):
             if len(args) == 0:
                 return None
             if isinstance(args[0], (dict, list, np.ndarray)):
                 return [cls.decompress_same_args(v, index) for v in args]
-            return _maybe_cast_int(args[index])
+            return args[index]
 
         if args is None:
             return None
@@ -199,9 +195,9 @@ class SegmentedLinearPredictorCompressor:
             elif isinstance(value, list) and isinstance(value[0], (dict, list, np.ndarray)):
                 result[key] = [cls.decompress_same_args(v, index) for v in value]
             elif len(value) == 1:
-                result[key] = _maybe_cast_int(value[0])
+                result[key] = value[0]
             else:
-                result[key] = _maybe_cast_int(value[index])
+                result[key] = value[index]
 
         return result
     

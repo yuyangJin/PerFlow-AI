@@ -30,7 +30,13 @@ import msgpack
 
 from perflowai.padoc.utils import logger, analyze_node_dict
 from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent
-from perflowai.padoc.node import CPUNode, GPUNode, KernelNode, node_from_dict, count_trace_nodes
+from perflowai.padoc.node import (
+    CPUNode,
+    GPUNode,
+    node_from_dict,
+    count_trace_nodes,
+    LaunchSubtreeIndex,
+)
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -313,6 +319,9 @@ class CompressedTrace(BaseTrace):
         self.ranks = ranks
 
         self.event_templates: List[MergeEvent] = event_templates
+        self._launch_indexes: Dict[tuple, LaunchSubtreeIndex] = {}
+        if self.ranks:
+            self.build_launch_indexes()
 
     def compress_templates_values(self) -> None:
         """Compress the values of templates."""
@@ -329,6 +338,12 @@ class CompressedTrace(BaseTrace):
         pass
         count_trace_nodes(self)
 
+    def set_ranks(self, ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]]):
+        super().set_ranks(ranks)
+        self.clear_launch_indexes()
+        if self.ranks:
+            self.build_launch_indexes()
+
     def iter_nodes(self, rank: Optional[str] = None):
         """Iterate over all nodes in the trace, optionally filtering by rank."""
         rank_items = self.ranks.items() if rank is None else [(rank, self.ranks.get(rank, {}))]
@@ -337,6 +352,47 @@ class CompressedTrace(BaseTrace):
                 for tid, phases in threads.items():
                     for ph, node in phases.items():
                         yield r, pid, tid, ph, node
+
+    def clear_launch_indexes(self) -> None:
+        self._launch_indexes = {}
+
+    def build_launch_indexes(self, rank: Optional[str] = None) -> Dict[tuple, LaunchSubtreeIndex]:
+        for r, pid, tid, ph, node in self.iter_nodes(rank):
+            self._launch_indexes[(r, pid, tid, ph)] = LaunchSubtreeIndex(node)
+        return self._launch_indexes
+
+    def get_launch_index(self, rank: str, pid: str, tid: str, ph: str) -> LaunchSubtreeIndex:
+        key = (rank, pid, tid, ph)
+        if key in self._launch_indexes:
+            return self._launch_indexes[key]
+
+        node = self.get_node(rank, pid, tid, ph)
+        if node is None:
+            raise KeyError(f"Node not found for key {key}")
+
+        index = LaunchSubtreeIndex(node)
+        self._launch_indexes[key] = index
+        return index
+
+    def get_launch_nodes(
+        self,
+        rank: str,
+        pid: str,
+        tid: str,
+        ph: str,
+        node: Optional[Any] = None,
+    ):
+        return self.get_launch_index(rank, pid, tid, ph).get_launch_nodes(node)
+
+    def iter_launch_nodes(
+        self,
+        rank: str,
+        pid: str,
+        tid: str,
+        ph: str,
+        node: Optional[Any] = None,
+    ):
+        yield from self.get_launch_index(rank, pid, tid, ph).iter_launch_nodes(node)
 
     @classmethod
     def from_file(cls, path: str) -> CompressedTrace:
@@ -368,7 +424,17 @@ class CompressedTrace(BaseTrace):
                 for tid, phase_dict in thread_dict.items():
                     ranks[rank][pid][tid] = {}
                     for ph, node_dict in phase_dict.items():
-                        ranks[rank][pid][tid][ph] = node_from_dict(node_dict)
+                        if (
+                            isinstance(tid, str)
+                            and tid.startswith("stream ")
+                            and isinstance(node_dict, dict)
+                            and "k" not in node_dict
+                            and "t" in node_dict
+                            and "i" in node_dict
+                        ):
+                            ranks[rank][pid][tid][ph] = GPUNode.from_dict(node_dict)
+                        else:
+                            ranks[rank][pid][tid][ph] = node_from_dict(node_dict)
 
         metadata = data["metadata"]
         start_timestamp = data.get("rank_start_timestamp", {})
