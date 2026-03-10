@@ -117,6 +117,8 @@ class SegmentedLinearPredictorCompressor:
         for key, value in args.items():
             if not isinstance(value, list):
                 continue
+            if len(value) == 0:
+                continue
             if isinstance(value[0], (dict, list, np.ndarray)):
                 continue
             if cls._all_same_args(value):
@@ -192,7 +194,9 @@ class SegmentedLinearPredictorCompressor:
         for key, value in args.items():
             if isinstance(value, dict):
                 result[key] = cls.decompress_same_args(value, index)
-            elif isinstance(value, list) and isinstance(value[0], (dict, list, np.ndarray)):
+            elif len(value) == 0:
+                result[key] = []
+            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (dict, list, np.ndarray)):
                 result[key] = [cls.decompress_same_args(v, index) for v in value]
             elif len(value) == 1:
                 result[key] = value[0]
@@ -271,10 +275,18 @@ class SegmentedLinearPredictorCompressor:
         return best_segments
 
     @classmethod
-    def compress_ids(cls, ids: List[str]):
-        id_s, id_arr = cls._parse_id_list(ids)
+    def compress_ids(cls, ids: List[Union[int, str]]) -> Union[np.ndarray, Dict[str, Any]]:
+        if not ids:
+            return np.asarray([], dtype=np.int64)
 
-        return id_s, id_arr
+        first = ids[0]
+        if isinstance(first, str):
+            prefix, numeric_ids = cls._parse_id_list([str(v) for v in ids])
+            compressed_numeric = cls.compress_tss(numeric_ids.tolist())
+            return [prefix, compressed_numeric]
+
+        numeric_ids = [int(v) for v in ids]
+        return cls.compress_tss(numeric_ids)
 
     @classmethod
     def _parse_id_list(cls, id_list: List[str]) -> Tuple[str, np.ndarray]:
@@ -314,6 +326,42 @@ class SegmentedLinearPredictorCompressor:
 
         return prefix, np.array(nums, dtype=np.int32)
 
+    @classmethod
+    def decompress_ids(
+        cls,
+        compressed_ids: Union[np.ndarray, Dict[str, Any], List[Any]],
+        index: int,
+    ) -> Union[int, str, None]:
+        if isinstance(compressed_ids, np.ndarray):
+            return cls.decompress_linear_segment(compressed_ids, index)
+
+        if compressed_ids is None:
+            return None
+
+        if isinstance(compressed_ids, dict):
+            value = cls.decompress_linear_segment(compressed_ids["values"], index)
+            kind = compressed_ids.get("kind", "")
+            if kind == "prefixed_numeric":
+                return f"{compressed_ids['prefix']}{value}"
+            if kind == "numeric_string":
+                return str(value)
+            if kind == "numeric":
+                return value
+            raise ValueError(f"Unsupported compressed id kind: {kind}")
+
+        if isinstance(compressed_ids, list):
+            if len(compressed_ids) == 0:
+                return None
+            if len(compressed_ids) != 2 or not isinstance(compressed_ids[0], str):
+                return compressed_ids[index]
+            prefix, values = compressed_ids
+            value = cls.decompress_linear_segment(values, index)
+            if prefix:
+                return f"{prefix}{value}"
+            return str(value)
+
+        raise ValueError(f"Unsupported compressed id type: {type(compressed_ids)}")
+
 
     @classmethod
     def _all_same_args(cls, args: List[Any]) -> bool:
@@ -327,29 +375,6 @@ class SegmentedLinearPredictorCompressor:
                 return False
 
         return True
-
-    @classmethod
-    def compress_ids(cls, ids: List[int]) -> List[Tuple[int, int, int]]:
-        """Compress ids by identifying and encoding contiguous arithmetic progressions.
-        
-        Each arithmetic progression block is encoded as a 3-tuple:
-        (initial_value, increment, starting_index)
-        
-        Example: [10, 12, 14, 15, 16] -> [(10, 2, 0), (15, 1, 3)]
-        """
-
-        if not ids:
-            logger.info("IDs list is empty, returning empty list.")
-            return []
-
-        if not isinstance(ids[0], int):
-            logger.info(f"IDs list is not a list of integers {ids}, returning original list.")
-            return ids
-
-        result = cls._find_arithmetic_progression_blocks(ids)
-
-        logger.info(f"Compressed IDs: {result}")
-        return result
 
     @classmethod
     def _all_same_names(cls, names: List[List[int]]) -> bool:

@@ -13,10 +13,10 @@ from __future__ import annotations
 from typing import List, Dict, Any, Union
 from abc import ABC, abstractmethod
 import re
-from pympler import asizeof
 import numpy as np
 from .slp import SegmentedLinearPredictorCompressor as SLP
 from .utils import logger, to_json_safe
+from ._compat import asizeof
 
 def is_same_event(e1: Union[Event, MergeEvent], e2: Union[Event, MergeEvent], debug: bool = False) -> bool:
     """
@@ -171,7 +171,7 @@ class MergeEvent:
         event.cat = self.cat
         event.args = SLP.decompress_same_args(self.args, index)
         event.dur = SLP.decompress_linear_segment(self.dur, index)
-        event.id = SLP.decompress_linear_segment(self.id, index)
+        event.id = SLP.decompress_ids(self.id, index)
         event.bp = self.bp
         event.s = self.s
 
@@ -310,7 +310,7 @@ class MergeEvent:
             self.dur = SLP.segment_linear_compress(self.dur)
 
         if len(self.id) > 0:
-            self.id = SLP.compress_tss(self.id)
+            self.id = SLP.compress_ids(self.id)
 
         return
 
@@ -349,7 +349,19 @@ class MergeEvent:
         obj.dur = np.asarray(raw.get("dur", []), dtype=np.int64)
         obj.cat = raw.get("cat", None)
         obj.args = raw.get("args", None)
-        obj.id = np.asarray(raw.get("id", []), dtype=np.int64)
+        raw_id = raw.get("id", [])
+        if isinstance(raw_id, dict):
+            values = raw_id.get("values", [])
+            if isinstance(values, list):
+                raw_id["values"] = np.asarray(values, dtype=np.int64)
+            obj.id = raw_id
+        elif isinstance(raw_id, list) and len(raw_id) == 2 and isinstance(raw_id[0], str):
+            values = raw_id[1]
+            if isinstance(values, list):
+                values = np.asarray(values, dtype=np.int64)
+            obj.id = [raw_id[0], values]
+        else:
+            obj.id = np.asarray(raw_id, dtype=np.int64)
         obj.bp = raw.get("bp", None)
         obj.s = raw.get("s", None)
 

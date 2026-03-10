@@ -27,10 +27,12 @@ from abc import ABC, abstractmethod
 import os
 from collections import defaultdict
 import msgpack
-from pympler import asizeof
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
 
 from perflowai.padoc.utils import logger, analyze_node_dict
 from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent, memory_breakdown_templates
+from perflowai.padoc._compat import asizeof
 from perflowai.padoc.node import (
     CPUNode,
     GPUNode,
@@ -171,22 +173,42 @@ class Trace(BaseTrace):
         return cls({rank: events}, {rank: metadata})
 
     @classmethod
-    def from_dir(cls, path: str) -> 'Trace':
-        """Load a trace from a directory of JSON/msgpack files."""
+    def from_dir(cls, path: str, max_workers: Optional[int] = None) -> 'Trace':
+        """Load a trace from a directory of JSON/msgpack files.
+
+        Args:
+            path: Directory path containing trace files.
+            max_workers: Maximum number of worker threads. Defaults to CPU count.
+
+        Returns:
+            A Trace object containing all loaded events and metadata.
+        """
+        if max_workers is None:
+            max_workers = multiprocessing.cpu_count()
+
+        files = [os.path.join(path, file) for file in os.listdir(path)]
         all_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         all_metadata: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
-        for file in os.listdir(path):
-            file_path = os.path.join(path, file)
-            rank, events_list, metadata_dict = cls._load_single_file_data(file_path)
-            all_events[rank].extend(events_list)
-            all_metadata[rank].update(metadata_dict)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(cls._load_single_file_data, f): f for f in files}
+            for future in as_completed(futures):
+                rank, events_list, metadata_dict = future.result()
+                all_events[rank].extend(events_list)
+                all_metadata[rank].update(metadata_dict)
 
         return cls(dict(all_events), dict(all_metadata))
 
     @staticmethod
-    def _load_single_file_data(path: str) -> Dict[str, Any]:
-        """Load data from a single JSON or msgpack file."""
+    def _load_single_file_data(path: str) -> tuple[str, List[Dict[str, Any]], Dict[str, Any]]:
+        """Load data from a single JSON or msgpack file.
+
+        Args:
+            path: Path to the trace file.
+
+        Returns:
+            A tuple of (rank, events_list, metadata_dict).
+        """
         data: Dict[str, Any] = {}
         if path.endswith(".json"):
             with open(path, 'r', encoding="utf-8") as f:
@@ -196,6 +218,7 @@ class Trace(BaseTrace):
                 data = msgpack.load(f, strict_map_key=False)
         else:
             logger.warning("Unsupported trace file format: %s", path)
+            return str(0), [], {}
 
         rank = data.get("distributedInfo", {}).get("rank", "0")
         events: List[Dict[str, Any]] = data.get("traceEvents", [])

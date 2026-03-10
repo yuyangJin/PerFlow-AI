@@ -5,8 +5,8 @@ This module contains utility functions for PADoc.
 import logging
 from typing import Any
 import numpy as np
-from pympler import asizeof
 from collections import defaultdict, Counter
+from ._compat import asizeof
 
 logging.basicConfig(
     level=logging.DEBUG,

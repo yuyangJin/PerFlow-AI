@@ -23,3 +23,5 @@ sdist/
 
 # vscode
 .vscode/
+
+tests/padoc_test/artifacts
