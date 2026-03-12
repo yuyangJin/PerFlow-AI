@@ -421,54 +421,106 @@ class TemplateCompressor(Compressor):
         emit_summary: bool = True,
     ) -> Tuple[CompressedTrace, TraceLoadStats]:
         """Compress one trace file using the same pipeline as directory mode."""
+        compressed_trace, stats, _ = self.compress_file_with_timing(path, emit_summary=emit_summary)
+        return compressed_trace, stats
+
+    def compress_file_with_timing(
+        self,
+        path: str,
+        emit_summary: bool = True,
+    ) -> Tuple[CompressedTrace, TraceLoadStats, Dict[str, float]]:
+        """Compress one trace file and return timing breakdown."""
+        load_start = time.perf_counter()
         file_data = Trace.load_file_data(path)
-        return self._compress_file_data(file_data, emit_summary=emit_summary)
+        load_seconds = time.perf_counter() - load_start
+
+        compress_start = time.perf_counter()
+        compressed_trace, stats = self._compress_file_data(file_data, emit_summary=emit_summary)
+        compress_seconds = time.perf_counter() - compress_start
+
+        return compressed_trace, stats, {
+            "load_seconds": load_seconds,
+            "compress_seconds": compress_seconds,
+        }
 
     def merge_compressed_files(
         self,
         paths: List[str],
+        emit_summary: bool = True,
+        emit_progress: bool = True,
+        emit_rank_logs: bool = True,
     ) -> CompressedTrace:
         """Merge independently compressed rank files into a shared compressed trace."""
+        compressed_trace, _ = self.merge_compressed_files_with_timing(
+            paths,
+            emit_summary=emit_summary,
+            emit_progress=emit_progress,
+            emit_rank_logs=emit_rank_logs,
+        )
+        return compressed_trace
+
+    def merge_compressed_files_with_timing(
+        self,
+        paths: List[str],
+        emit_summary: bool = True,
+        emit_progress: bool = True,
+        emit_rank_logs: bool = True,
+    ) -> Tuple[CompressedTrace, Dict[str, float]]:
+        """Merge independently compressed rank files and return timing breakdown."""
         merge_compressor = TemplateCompressor()
         merge_compressor._reset_template_state()
         started_at = time.perf_counter()
         total_paths = len(paths)
+        load_seconds = 0.0
+        compress_seconds = 0.0
         merged_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
         merged_metadata: Dict[str, Any] = {}
         merged_start_timestamp: Dict[str, int] = {}
 
         for index, path in enumerate(sorted(paths), start=1):
+            load_start = time.perf_counter()
             compressed_trace = CompressedTrace.from_file(path)
-            rank = compressed_trace.get_ranks()[0]
-            raw_rank_trace = TemplateCompressor().intra_decompress(compressed_trace, rank)
-            canonical_rank_trace = self._canonicalize_rank_trace(raw_rank_trace, rank)
-            merged_ranks[rank] = merge_compressor._compress_rank(canonical_rank_trace, rank)
-            logger.info(
-                "Merged rank %s | templates=%d",
-                rank,
-                len(merge_compressor.event_templates),
-            )
+            load_seconds += time.perf_counter() - load_start
+            compress_start = time.perf_counter()
+            for rank in sorted(compressed_trace.get_ranks()):
+                raw_rank_trace = TemplateCompressor().intra_decompress(compressed_trace, rank)
+                canonical_rank_trace = self._canonicalize_rank_trace(raw_rank_trace, rank)
+                merged_ranks[rank] = merge_compressor._compress_rank(canonical_rank_trace, rank)
+                if emit_rank_logs:
+                    logger.info(
+                        "Merged rank %s | templates=%d",
+                        rank,
+                        len(merge_compressor.event_templates),
+                    )
             merged_metadata.update(compressed_trace.get_metadata())
             merged_start_timestamp.update(compressed_trace.get_start_time())
+            compress_seconds += time.perf_counter() - compress_start
             elapsed = time.perf_counter() - started_at
             average = elapsed / index if index else 0.0
             eta = average * max(total_paths - index, 0)
-            logger.info(
-                "merge progress %d/%d | elapsed=%.1fs | eta=%.1fs",
-                index,
-                total_paths,
-                elapsed,
-                eta,
-            )
+            if emit_progress:
+                logger.info(
+                    "merge progress %d/%d | elapsed=%.1fs | eta=%.1fs",
+                    index,
+                    total_paths,
+                    elapsed,
+                    eta,
+                )
 
-        merge_compressor._finalize_template_values(emit_summary=True)
+        merge_compressor._finalize_template_values(emit_summary=emit_summary)
         self.last_memory_before = merge_compressor.last_memory_before
         self.last_memory_after = merge_compressor.last_memory_after
-        return CompressedTrace(
-            merge_compressor.event_templates,
-            merged_ranks,
-            merged_metadata,
-            merged_start_timestamp,
+        return (
+            CompressedTrace(
+                merge_compressor.event_templates,
+                merged_ranks,
+                merged_metadata,
+                merged_start_timestamp,
+            ),
+            {
+                "load_seconds": load_seconds,
+                "compress_seconds": compress_seconds,
+            },
         )
 
     def inter_compress_dir(
@@ -968,6 +1020,7 @@ class TemplateCompressor(Compressor):
         compressed_trace: BaseTrace,
         path: str,
         file_type: str,
+        json_indent: Optional[int] = 2,
     ) -> None:
         """Decompress a compressed trace rank by rank and write files immediately."""
         assert isinstance(compressed_trace, CompressedTrace), \
@@ -987,4 +1040,4 @@ class TemplateCompressor(Compressor):
             )
             trace.set_ranks({rank: new_rank})
             file_path = os.path.join(path, f"rank{rank}.{file_type}")
-            trace.write_file(file_path, rank, origin=True)
+            trace.write_file(file_path, rank, origin=True, json_indent=json_indent)

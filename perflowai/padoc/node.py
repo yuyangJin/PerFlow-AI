@@ -673,6 +673,13 @@ def count_nodes(node, counter=None, type_memory=None, seen=None, type_field_memo
 
 
 def count_trace_nodes(compressed_trace):
+    counter, type_memory, type_field_memory = collect_trace_node_stats(compressed_trace)
+    print_node_stats(counter, "Trace Node Statistics", type_memory, type_field_memory)
+    return counter, type_memory, type_field_memory
+
+
+def collect_trace_node_stats(compressed_trace):
+    """Collect node statistics for a compressed trace without printing."""
     counter = defaultdict(int)
     type_memory = defaultdict(int)
     type_field_memory = defaultdict(lambda: defaultdict(int))
@@ -682,7 +689,6 @@ def count_trace_nodes(compressed_trace):
         for _, _, _, _, node in compressed_trace.iter_nodes(rank):
             count_nodes(node, counter, type_memory, seen, type_field_memory)
 
-    print_node_stats(counter, "Trace Node Statistics", type_memory, type_field_memory)
     return counter, type_memory, type_field_memory
 
 

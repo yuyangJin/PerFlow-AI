@@ -153,9 +153,22 @@ class BaseTrace(ABC):
         return None
 
     @abstractmethod
-    def write_file(self, path: str, rank: str = "0", origin: bool = False):
+    def write_file(
+        self,
+        path: str,
+        rank: str = "0",
+        origin: bool = False,
+        json_indent: Optional[int] = 2,
+    ):
         """Write the trace to a file."""
         return
+
+
+def _json_dump_kwargs(json_indent: Optional[int]) -> Dict[str, Any]:
+    """Return json.dump kwargs for either readable or compact output."""
+    if json_indent is None or json_indent <= 0:
+        return {"indent": None, "separators": (",", ":")}
+    return {"indent": json_indent}
 
 class Trace(BaseTrace):
     """Concrete uncompressed trace type.
@@ -305,7 +318,13 @@ class Trace(BaseTrace):
             stats.add_file(file_data)
         return TraceLoadResult(trace=trace, stats=stats)
 
-    def write_file(self, path: str, rank: str = "", origin: bool = False):
+    def write_file(
+        self,
+        path: str,
+        rank: str = "",
+        origin: bool = False,
+        json_indent: Optional[int] = 2,
+    ):
         out = {}
         if rank == "":
             rank = self.get_ranks()[0]
@@ -369,12 +388,18 @@ class Trace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f, **_json_dump_kwargs(json_indent))
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
 
-    def write_dir(self, path: str, file_type: str, origin: bool = True):
+    def write_dir(
+        self,
+        path: str,
+        file_type: str,
+        origin: bool = True,
+        json_indent: Optional[int] = 2,
+    ):
         """Write the trace to a directory of JSON/msgpack files.
 
         Args:
@@ -395,7 +420,7 @@ class Trace(BaseTrace):
 
         for rank in self.ranks:
             file_path = os.path.join(path, f"rank{rank}.{file_type}")
-            self.write_file(file_path, rank, origin)
+            self.write_file(file_path, rank, origin, json_indent=json_indent)
 
 
 class CompressedTrace(BaseTrace):
@@ -555,7 +580,13 @@ class CompressedTrace(BaseTrace):
 
         return cls(event_templates, ranks, metadata, start_timestamp)
 
-    def write_file(self, path: str, rank: str = "", origin: bool = False):
+    def write_file(
+        self,
+        path: str,
+        rank: str = "",
+        origin: bool = False,
+        json_indent: Optional[int] = 2,
+    ):
         out = {}
 
         out["metadata"] = self.metadata
@@ -576,7 +607,18 @@ class CompressedTrace(BaseTrace):
 
         if ext == ".json":
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
+                json.dump(out, f, **_json_dump_kwargs(json_indent))
         else:
             with open(path, "wb") as f:
                 msgpack.dump(out, f)
+
+
+def compressed_trace_core_parts(compressed_trace: CompressedTrace) -> Dict[str, int]:
+    """Return the core in-memory parts of a compressed trace."""
+    return {
+        "event_templates": asizeof.asizeof(compressed_trace.event_templates),
+        "ranks": asizeof.asizeof(compressed_trace.ranks),
+        "metadata": asizeof.asizeof(compressed_trace.metadata),
+        "start_timestamp": asizeof.asizeof(compressed_trace.start_timestamp),
+        "launch_indexes": asizeof.asizeof(compressed_trace._launch_indexes),
+    }

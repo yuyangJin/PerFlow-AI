@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -144,6 +148,53 @@ def test_merge_single_compressed_file_roundtrip(tmp_path: Path) -> None:
     assert passed, message
 
 
+def test_merge_of_intermediate_merged_files_roundtrip(tmp_path: Path) -> None:
+    """Merging intermediate multi-rank compressed files should preserve every rank."""
+    trace_dir = tmp_path / "trace_dir"
+    trace_dir.mkdir()
+    for rank in range(4):
+        write_rank_trace(TRACE_PATH, trace_dir / f"rank{rank}.json", rank=rank)
+
+    part_dir = tmp_path / "parts"
+    part_dir.mkdir()
+    for source_name in sorted(trace_dir.iterdir()):
+        compressed_trace, _ = TemplateCompressor().compress_file(str(source_name))
+        compressed_trace.write_file(str(part_dir / source_name.name))
+
+    stage_one_a = TemplateCompressor().merge_compressed_files(
+        [str(part_dir / "rank0.json"), str(part_dir / "rank1.json")],
+        emit_summary=False,
+        emit_progress=False,
+        emit_rank_logs=False,
+    )
+    stage_one_b = TemplateCompressor().merge_compressed_files(
+        [str(part_dir / "rank2.json"), str(part_dir / "rank3.json")],
+        emit_summary=False,
+        emit_progress=False,
+        emit_rank_logs=False,
+    )
+
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    stage_one_a_path = stage_dir / "merge_a.json"
+    stage_one_b_path = stage_dir / "merge_b.json"
+    stage_one_a.write_file(str(stage_one_a_path))
+    stage_one_b.write_file(str(stage_one_b_path))
+
+    final_merged = TemplateCompressor().merge_compressed_files(
+        [str(stage_one_a_path), str(stage_one_b_path)],
+        emit_summary=False,
+        emit_progress=False,
+        emit_rank_logs=False,
+    )
+    restored_dir = tmp_path / "restored"
+    restored_trace = TemplateCompressor().inter_decompress(final_merged)
+    restored_trace.write_dir(str(restored_dir), "json")
+
+    passed, message = compare_trace_directories_with_report(str(trace_dir), str(restored_dir))
+    assert passed, message
+
+
 def test_single_file_pipeline_and_verify(tmp_path: Path) -> None:
     """Single-file compression should use the same pipeline and verify cleanly."""
     compressor = TemplateCompressor()
@@ -216,3 +267,51 @@ def test_decompress_linear_segment_supports_segment_blocks() -> None:
     assert SLP.decompress_linear_segment(segments, 1) == 12
     assert SLP.decompress_linear_segment({"segments": segments}, 3) == 20
     assert SLP.decompress_linear_segment({"segments": segments}, 4) == 22
+
+
+def test_mpi_hierarchical_merge_demo(tmp_path: Path) -> None:
+    """MPI demo should pass multi-rank hierarchical merge on the small trace subset."""
+    pytest.importorskip("mpi4py")
+    if shutil.which("mpirun") is None:
+        pytest.skip("mpirun is not available")
+
+    command = [
+        sys.executable,
+        str(ROOT / "examples" / "compressed_analyze" / "compress_demo.py"),
+        "--input_file",
+        str(TRACE_PATH),
+        "--output_file",
+        str(tmp_path / "single.json"),
+        "--reconstruct_file",
+        str(tmp_path / "single_restored.json"),
+        "--multi_rank_input_dir",
+        str(MERGE_SMALL_DIR),
+        "--multi_rank_output_file",
+        str(tmp_path / "multi.json"),
+        "--multi_rank_reconstruct_dir",
+        str(tmp_path / "restored_dir"),
+        "--multi_rank_executor",
+        "mpi",
+        "--mpi_processes",
+        "2",
+        "--mpi_merge_fanin",
+        "2",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(ROOT),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        combined_output = f"{exc.stdout}\n{exc.stderr}"
+        if "Operation not permitted" in combined_output:
+            pytest.skip("mpirun is not permitted in the current environment")
+        raise
+
+    assert "Launching MPI merge round 1 with 2 processes" in result.stdout
+    assert "Running MPI verify in merged_compressed_file mode" in result.stdout
+    assert "multi-rank+merge" in result.stdout
+    assert "all files match" in result.stdout

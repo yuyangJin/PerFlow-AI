@@ -74,6 +74,7 @@ def main() -> None:
     parser.add_argument("--compressed_file")
     parser.add_argument("--summary_file", required=True)
     parser.add_argument("--log_dir")
+    parser.add_argument("--json_indent", type=int, default=2)
     args = parser.parse_args()
 
     comm = MPI.COMM_WORLD
@@ -133,7 +134,8 @@ def main() -> None:
     if rank == 0:
         print(
             f"Running MPI verify in {args.mode} mode with {world_size} processes "
-            f"for {len(keys)} files"
+            f"for {len(keys)} files",
+            flush=True,
         )
 
     assigned_keys = keys[rank::world_size]
@@ -156,12 +158,12 @@ def main() -> None:
             compressed_trace = CompressedTrace.from_file(compressed_path)
             restored_trace = TemplateCompressor().inter_decompress(compressed_trace)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            restored_trace.write_file(target_path, origin=True)
+            restored_trace.write_file(target_path, origin=True, json_indent=args.json_indent)
         elif args.mode == "merged_compressed_file":
             compressed_trace = CompressedTrace.from_file(args.compressed_file)
             restored_trace = TemplateCompressor().intra_decompress(compressed_trace, file_key)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            restored_trace.write_file(target_path, file_key, origin=True)
+            restored_trace.write_file(target_path, file_key, origin=True, json_indent=args.json_indent)
 
         passed, message = compare_trace_files_with_report(source_path, target_path)
         if not passed:
@@ -173,21 +175,36 @@ def main() -> None:
             eta = average * max(assigned_total - index, 0)
             print(
                 f"[mpi-rank0 verify] {index}/{assigned_total} completed | "
-                f"elapsed={format_duration(elapsed)} | eta={format_duration(eta)}"
+                f"elapsed={format_duration(elapsed)} | eta={format_duration(eta)}",
+                flush=True,
             )
 
-    gathered = comm.gather(failures, root=0)
+    local_verify_seconds = time.perf_counter() - started_at
+    gather_start = time.perf_counter()
+    gathered = comm.gather(
+        {
+            "failures": failures,
+            "verify_seconds": local_verify_seconds,
+        },
+        root=0,
+    )
     if rank != 0:
         return
+    mpi_overhead_seconds = time.perf_counter() - gather_start
 
-    flat_failures = [item for chunk in gathered for item in chunk]
+    flat_failures = [item for chunk in gathered for item in chunk["failures"]]
     summary = {
         "passed": not flat_failures,
         "message": "all files match" if not flat_failures else flat_failures[0],
+        "rank0_verify_seconds": gathered[0]["verify_seconds"],
+        "mpi_overhead_seconds": mpi_overhead_seconds,
     }
     with open(args.summary_file, "w", encoding="utf-8") as file_obj:
         json.dump(summary, file_obj, indent=2)
-    print(f"MPI verify finished | passed={summary['passed']} | message={summary['message']}")
+    print(
+        f"MPI verify finished | passed={summary['passed']} | message={summary['message']}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
