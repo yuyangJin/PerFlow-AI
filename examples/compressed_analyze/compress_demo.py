@@ -217,6 +217,7 @@ def run_mpi_verify(
     mpi_processes: int,
     mpi_log_dir: str | None,
     compressed_dir: str | None = None,
+    compressed_file: str | None = None,
 ) -> tuple[bool, str]:
     """Run MPI verification on a directory pair."""
     summary_path = os.path.join(target_dir, ".padoc_mpi_verify_summary.json")
@@ -238,6 +239,8 @@ def run_mpi_verify(
     ]
     if compressed_dir:
         command.extend(["--compressed_dir", compressed_dir])
+    if compressed_file:
+        command.extend(["--compressed_file", compressed_file])
     if mpi_log_dir:
         command.extend(["--log_dir", mpi_log_dir])
 
@@ -502,17 +505,21 @@ def collect_multi_rank_merge_result(
     verify_message = "skipped"
     if not skip_verify:
         file_type = "json" if output_file.endswith(".json") else "bin"
-        restored_trace = compressor.inter_decompress(CompressedTrace.from_file(output_file))
-        restored_trace.write_dir(restore_dir, file_type)
         if executor == "mpi":
             verify_passed, verify_message = run_mpi_verify(
-                "directory_compare",
+                "merged_compressed_file",
                 input_dir,
                 restore_dir,
                 mpi_processes,
                 mpi_log_dir,
+                compressed_file=output_file,
             )
         else:
+            compressor.inter_decompress_to_dir(
+                CompressedTrace.from_file(output_file),
+                restore_dir,
+                file_type,
+            )
             verify_passed, verify_message = compare_trace_directories_with_report(input_dir, restore_dir)
     print_trace_memory_distribution("multi-rank+merge", compressed_trace)
     print_node_statistics("multi-rank+merge", compressed_trace)

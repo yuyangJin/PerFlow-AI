@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List
@@ -32,6 +35,36 @@ def append_log(log_file: Path | None, message: str) -> None:
         file_obj.write(message + "\n")
 
 
+def configure_worker_output(rank: int, log_file: Path | None) -> None:
+    """Keep only rank0 logs on the terminal; optionally redirect workers to files."""
+    if rank == 0:
+        return
+
+    if log_file is None:
+        sink = open(os.devnull, "w", encoding="utf-8")
+    else:
+        sink = log_file.open("a", encoding="utf-8")
+
+    sys.stdout = sink
+    sys.stderr = sink
+
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        if hasattr(handler, "setStream"):
+            handler.setStream(sink)
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds into a compact duration string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:d}h{minutes:02d}m{seconds:02d}s"
+    return f"{minutes:d}m{seconds:02d}s"
+
+
 def main() -> None:
     """Compress an independent subset of files under MPI."""
     parser = argparse.ArgumentParser()
@@ -55,6 +88,8 @@ def main() -> None:
         if log_file.exists():
             log_file.unlink()
 
+    configure_worker_output(rank, log_file)
+
     if rank == 0:
         print(
             f"Running MPI multi-rank compression with {world_size} processes "
@@ -71,8 +106,10 @@ def main() -> None:
         "memory_before": defaultdict(int),
         "memory_after": defaultdict(int),
     }
+    started_at = time.perf_counter()
+    assigned_total = len(assigned_files)
 
-    for source_file in assigned_files:
+    for index, source_file in enumerate(assigned_files, start=1):
         append_log(log_file, f"compressing {source_file}")
         compressor = TemplateCompressor()
         compressed_trace, load_stats = compressor.compress_file(source_file, emit_summary=False)
@@ -89,6 +126,15 @@ def main() -> None:
             local_summary["memory_before"][key] += value
         for key, value in compressor.last_memory_after.items():
             local_summary["memory_after"][key] += value
+
+        if rank == 0 and assigned_total > 0:
+            elapsed = time.perf_counter() - started_at
+            average = elapsed / index
+            eta = average * max(assigned_total - index, 0)
+            print(
+                f"[mpi-rank0 compress] {index}/{assigned_total} completed | "
+                f"elapsed={format_duration(elapsed)} | eta={format_duration(eta)}"
+            )
 
     gathered = comm.gather(local_summary, root=0)
     if rank != 0:

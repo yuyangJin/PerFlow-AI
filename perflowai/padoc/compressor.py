@@ -962,3 +962,29 @@ class TemplateCompressor(Compressor):
         )
         trace.set_ranks(all_ranks)
         return trace
+
+    def inter_decompress_to_dir(
+        self,
+        compressed_trace: BaseTrace,
+        path: str,
+        file_type: str,
+    ) -> None:
+        """Decompress a compressed trace rank by rank and write files immediately."""
+        assert isinstance(compressed_trace, CompressedTrace), \
+            "Compressed trace must be of type CompressedTrace"
+
+        if file_type not in ["json", "bin"]:
+            logger.warning("Unsupported trace file format: %s, writing as JSON.", file_type)
+            file_type = "json"
+
+        os.makedirs(path, exist_ok=True)
+        for rank in compressed_trace.get_ranks():
+            logger.info("decompressing rank %s", rank)
+            new_rank = self._decompress_rank(compressed_trace, rank)
+            trace = Trace(
+                metadata={rank: compressed_trace.get_metadata()[rank]},
+                start_timestamp={rank: compressed_trace.get_start_time()[rank]},
+            )
+            trace.set_ranks({rank: new_rank})
+            file_path = os.path.join(path, f"rank{rank}.{file_type}")
+            trace.write_file(file_path, rank, origin=True)
