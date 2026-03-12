@@ -215,8 +215,37 @@ class SegmentedLinearPredictorCompressor:
             if compressed_array.size == 0:
                 return None
             return int(compressed_array[index])
-        else:
-            logger.error(f"Not finished")
+
+        if isinstance(compressed_array, list):
+            if len(compressed_array) == 0:
+                return None
+            first = compressed_array[0]
+            if isinstance(first, (tuple, list)) and len(first) == 5:
+                return cls._decompress_segment_blocks(compressed_array, index)
+            return int(compressed_array[index])
+
+        if isinstance(compressed_array, dict):
+            if "segments" in compressed_array:
+                return cls._decompress_segment_blocks(compressed_array["segments"], index)
+            if "values" in compressed_array:
+                return cls.decompress_linear_segment(compressed_array["values"], index)
+
+        raise ValueError(
+            f"Unsupported linear segment type: {type(compressed_array)}"
+        )
+
+    @classmethod
+    def _decompress_segment_blocks(
+        cls,
+        segments: List[Union[Tuple[int, int, int, int, Any], List[Any]]],
+        index: int,
+    ) -> Optional[int]:
+        for start, length, slope, intercept, residuals in segments:
+            if start <= index < start + length:
+                local_index = index - start
+                residual = residuals[local_index]
+                return int(slope * local_index + intercept + int(residual))
+        return None
 
     @classmethod
     def compress_tss(cls, tss: List[int]) -> Dict[str, Any]:

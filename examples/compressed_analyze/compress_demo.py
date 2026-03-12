@@ -1,343 +1,594 @@
-"""
-Command-line tool for compressing Torch Profiler trace files.
+"""CLI demo for PADOC trace compression."""
 
-This script loads a trace, compresses it using TemplateCompressor,
-writes both original and compressed outputs, reconstructs the trace,
-and verifies correctness by comparing the reconstructed file against
-the original.
+from __future__ import annotations
 
-Run with:
-
-    python compress_demo.py --input_file <trace.json> \
-        --origin_file <origin.bin> \
-        --output_file <compressed.bin> \
-        --reconstruct_file <reconstructed.bin>
-"""
-
-import os
 import argparse
-import filecmp
 import json
-from typing import List
-from pympler import asizeof
-from perflowai.padoc import Trace, TemplateCompressor, CompressedTrace
+import os
+import shutil
+import subprocess
+import sys
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List
 
-def get_original_json_mem_size(input_file):
-    """测量原始 JSON 文件加载到内存（作为 dict/list）后的大小。"""
-    with open(input_file, 'r', encoding='utf-8') as f:
-        # 使用 json.load() 读取原始的 Python 结构
-        original_data_structure = json.load(f)
-
-    # 测量这个原始 Python 数据结构（dict/list）的内存大小
-    mem_size = asizeof.asizeof(original_data_structure)
-    return mem_size
-
-def get_dir_json_mem_size(dir_path):
-    """
-    遍历目录下所有 JSON 文件，计算它们加载到内存后的总大小。
-    返回总字节数。
-    """
-    total_mem_size = 0
-
-    for root, _, files in os.walk(dir_path):
-        for file in files:
-            if file.endswith(".json"):
-                file_path = os.path.join(root, file)
-                try:
-                    size = get_original_json_mem_size(file_path)
-                    total_mem_size += size
-                except Exception as e:
-                    print(f"读取失败: {file_path}, 错误: {e}")
-
-    return total_mem_size
+from perflowai.padoc import (
+    CompressedTrace,
+    TemplateCompressor,
+    compare_trace_directories_with_report,
+    compare_trace_files_with_report,
+)
+from perflowai.padoc._compat import asizeof
+from perflowai.padoc.event import memory_breakdown_templates
+from perflowai.padoc.node import count_nodes, count_trace_nodes, print_node_stats
+from perflowai.padoc.trace import TraceLoadStats
 
 
-def compress_single_rank_demo(input_file: str,
-                              origin_file: str,
-                              output_file: str,
-                              restore_file: str
-    ):
-    """
-    Compress a PerFlow-AI trace using TemplateCompressor, evaluate compression
-    performance (file size + memory size), and verify correctness by reconstructing
-    the trace and comparing it with the original.
+@dataclass(frozen=True)
+class CompressionRunResult:
+    """Summary for one demo scenario."""
 
-    This function performs the following steps:
-        1. Load a Trace object from the JSON trace file.
-        2. Measure memory size of the original Trace object.
-        3. Write the original trace to a JSON file.
-        4. Compress the trace using TemplateCompressor.
-        5. Measure memory and file size after compression.
-        6. Save the compressed trace.
-        7. Re-load the compressed trace, reconstruct the original trace, and save it.
-        8. Compare the reconstructed trace file with the original file using a byte-level diff.
+    scenario: str
+    source: str
+    file_count: int
+    event_count: int
+    source_size_bytes: int
+    source_memory_bytes: int
+    compressed_size_bytes: int
+    compressed_memory_bytes: int
+    verify_passed: bool
+    verify_message: str
+    memory_before: Dict[str, int]
+    memory_after: Dict[str, int]
+    duration_seconds: float
 
-    Args:
-        input_file (str):
-            Path to the input JSON trace file.
-        origin_file (str):
-            Path to write the serialized original trace.
-        output_file (str):
-            Path to write the compressed trace file.
-        restore_file (str):
-            Path to write the reconstructed (decompressed) trace.
 
-    Returns:
-        None
-            The function prints compression statistics and correctness test results
-            directly to stdout. No value is returned.
+def format_size(num_bytes: int) -> str:
+    """Format bytes into a readable string."""
+    value = float(num_bytes)
+    units = ["B", "KB", "MB", "GB"]
+    for unit in units:
+        if value < 1024.0 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            return f"{value:.2f}{unit}"
+        value /= 1024.0
+    return f"{num_bytes}B"
 
-    Raises:
-        FileNotFoundError:
-            If `input_file` does not exist.
-        JSONDecodeError:
-            If the input trace JSON file is malformed.
-        Exception:
-            Any unexpected errors raised during trace loading, compression,
-            serialization, or comparison.
 
-    Example:
-        >>> compress_demo(
-        ...     input_file="profiler.json",
-        ...     origin_file="origin.bin",
-        ...     output_file="compressed.bin",
-        ...     restore_file="reconstructed.bin"
-        ... )
-    """
+def compression_ratio(compressed: int, original: int) -> str:
+    """Return compressed/original ratio as text."""
+    if original == 0:
+        return "100.00%"
+    return f"{compressed / original:.2%}"
 
-    print(f"📥 Loading trace from {input_file}")
-    trace = Trace.from_file(input_file)
 
-    # get the original trace memory size
-    trace_size_mem = get_original_json_mem_size(input_file)
-    print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
+def format_duration(seconds: float) -> str:
+    """Format seconds into a compact duration string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:d}h{minutes:02d}m{seconds:02d}s"
+    return f"{minutes:d}m{seconds:02d}s"
 
-    o_trace_size_mem = asizeof.asizeof(trace)
-    print(f"🧠 Original Trace memory size: {o_trace_size_mem / 1024 / 1024:.2f} MB")
 
-    # write the original trace to a file
-    print(f"💾 Writing original trace to {origin_file}")
-    trace.write_file(origin_file, origin=True)
+def directory_size(paths: Iterable[str]) -> int:
+    """Return total size of a file collection."""
+    return sum(os.path.getsize(path) for path in paths)
 
-    # get the original file size
-    origin_file_size = os.path.getsize(origin_file)
-    print(f"📦 Original file size: {origin_file_size / 1024 / 1024:.2f} MB")
 
-    # compress the trace
-    print("⚙️ Compressing trace ...")
+def input_files(input_dir: str) -> List[str]:
+    """Return sorted file list for a directory."""
+    return [
+        os.path.join(input_dir, name)
+        for name in sorted(os.listdir(input_dir))
+        if os.path.isfile(os.path.join(input_dir, name))
+    ]
+
+
+def output_parts_dir(output_file: str) -> str:
+    """Return the directory that stores per-file compressed outputs."""
+    path = Path(output_file)
+    return str(path.with_suffix("")) + "_parts"
+
+
+def reset_output_path(path: str) -> None:
+    """Remove a stale output file or directory before regenerating it."""
+    target = Path(path)
+    if target.is_dir():
+        shutil.rmtree(target)
+    elif target.exists():
+        target.unlink()
+
+
+def print_progress(
+    stage: str,
+    current: int,
+    total: int,
+    started_at: float,
+) -> None:
+    """Print a simple serial progress line with ETA."""
+    elapsed = time.perf_counter() - started_at
+    average = elapsed / current if current else 0.0
+    remaining = average * max(total - current, 0)
+    print(
+        f"[{stage}] {current}/{total} completed | "
+        f"elapsed={format_duration(elapsed)} | eta={format_duration(remaining)}"
+    )
+
+
+def print_memory_distribution(title: str, parts: Dict[str, int]) -> None:
+    """Print a compact memory distribution table."""
+    total = sum(parts.values())
+    print(f"\n=== {title} ===")
+    for name, size in sorted(parts.items(), key=lambda item: item[1], reverse=True):
+        pct = (size / total * 100.0) if total > 0 else 0.0
+        print(f"{name:16s}: {format_size(size):>10s} ({pct:5.1f}%)")
+    print(f"{'total':16s}: {format_size(total):>10s} (100.0%)")
+
+
+def trace_core_parts(compressed_trace: CompressedTrace) -> Dict[str, int]:
+    """Return core in-memory size parts for one compressed trace."""
+    return {
+        "event_templates": asizeof.asizeof(compressed_trace.event_templates),
+        "ranks": asizeof.asizeof(compressed_trace.ranks),
+        "metadata": asizeof.asizeof(compressed_trace.metadata),
+        "start_timestamp": asizeof.asizeof(compressed_trace.start_timestamp),
+        "launch_indexes": asizeof.asizeof(compressed_trace._launch_indexes),
+    }
+
+
+def print_trace_memory_distribution(scenario: str, compressed_trace: CompressedTrace) -> None:
+    """Print core and template memory distribution for one compressed trace."""
+    print(f"\nMemory Distribution [{scenario}]")
+    print_memory_distribution("CompressedTrace Core Memory", trace_core_parts(compressed_trace))
+    template_parts = memory_breakdown_templates(compressed_trace.event_templates)
+    template_parts = {key: value for key, value in template_parts.items() if key != "total"}
+    print_memory_distribution("Event Templates Breakdown", template_parts)
+
+
+def print_trace_memory_distribution_for_files(scenario: str, paths: List[str]) -> None:
+    """Print aggregated memory distribution for independent compressed files."""
+    core_parts = defaultdict(int)
+    template_parts = defaultdict(int)
+    for path in paths:
+        compressed_trace = CompressedTrace.from_file(path)
+        for key, value in trace_core_parts(compressed_trace).items():
+            core_parts[key] += value
+        current_template_parts = memory_breakdown_templates(compressed_trace.event_templates)
+        for key, value in current_template_parts.items():
+            if key == "total":
+                continue
+            template_parts[key] += value
+
+    print(f"\nMemory Distribution [{scenario}]")
+    print_memory_distribution("CompressedTrace Core Memory", dict(core_parts))
+    print_memory_distribution("Event Templates Breakdown", dict(template_parts))
+
+
+def run_mpi_multi_rank_compression(
+    input_dir: str,
+    compressed_dir: str,
+    mpi_processes: int,
+    mpi_log_dir: str | None,
+) -> Dict[str, object]:
+    """Run independent per-file compression through mpirun."""
+    summary_path = os.path.join(compressed_dir, ".padoc_mpi_summary.json")
+    worker_script = Path(__file__).resolve().parents[2] / "perflowai" / "padoc" / "compress_mpi_worker.py"
+    command = [
+        "mpirun",
+        "-np",
+        str(mpi_processes),
+        sys.executable,
+        str(worker_script),
+        "--input_dir",
+        input_dir,
+        "--output_dir",
+        compressed_dir,
+        "--summary_file",
+        summary_path,
+    ]
+    if mpi_log_dir:
+        command.extend(["--log_dir", mpi_log_dir])
+
+    try:
+        import mpi4py  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "MPI execution requires mpi4py in the active environment."
+        ) from exc
+
+    print(f"Launching MPI compression with {mpi_processes} processes")
+    subprocess.run(command, check=True)
+    with open(summary_path, "r", encoding="utf-8") as file_obj:
+        summary = json.load(file_obj)
+    os.remove(summary_path)
+    return summary
+
+
+def run_mpi_verify(
+    mode: str,
+    source_dir: str,
+    target_dir: str,
+    mpi_processes: int,
+    mpi_log_dir: str | None,
+    compressed_dir: str | None = None,
+) -> tuple[bool, str]:
+    """Run MPI verification on a directory pair."""
+    summary_path = os.path.join(target_dir, ".padoc_mpi_verify_summary.json")
+    worker_script = Path(__file__).resolve().parents[2] / "perflowai" / "padoc" / "verify_mpi_worker.py"
+    command = [
+        "mpirun",
+        "-np",
+        str(mpi_processes),
+        sys.executable,
+        str(worker_script),
+        "--mode",
+        mode,
+        "--source_dir",
+        source_dir,
+        "--target_dir",
+        target_dir,
+        "--summary_file",
+        summary_path,
+    ]
+    if compressed_dir:
+        command.extend(["--compressed_dir", compressed_dir])
+    if mpi_log_dir:
+        command.extend(["--log_dir", mpi_log_dir])
+
+    try:
+        import mpi4py  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "MPI verification requires mpi4py in the active environment."
+        ) from exc
+
+    print(f"Launching MPI verify with {mpi_processes} processes")
+    subprocess.run(command, check=True)
+    with open(summary_path, "r", encoding="utf-8") as file_obj:
+        summary = json.load(file_obj)
+    os.remove(summary_path)
+    return bool(summary["passed"]), str(summary["message"])
+
+
+def print_node_statistics(scenario: str, compressed_trace: CompressedTrace) -> None:
+    """Print node statistics for one completed scenario."""
+    print(f"\nNode Statistics [{scenario}]")
+    count_trace_nodes(compressed_trace)
+
+
+def print_node_statistics_for_files(scenario: str, paths: List[str]) -> None:
+    """Print aggregated node statistics for a list of compressed trace files."""
+    counter = defaultdict(int)
+    type_memory = defaultdict(int)
+    type_field_memory = defaultdict(lambda: defaultdict(int))
+    seen = set()
+
+    for path in paths:
+        compressed_trace = CompressedTrace.from_file(path)
+        for rank in compressed_trace.get_ranks():
+            for _, _, _, _, node in compressed_trace.iter_nodes(rank):
+                count_nodes(node, counter, type_memory, seen, type_field_memory)
+
+    print(f"\nNode Statistics [{scenario}]")
+    print_node_stats(counter, "Trace Node Statistics", type_memory, type_field_memory)
+
+
+def print_summary_table(results: List[CompressionRunResult]) -> None:
+    """Print the final summary table."""
+    headers = [
+        "Scenario",
+        "Source",
+        "Source File",
+        "Source Memory",
+        "Compressed File",
+        "Compressed Memory",
+        "File Ratio",
+        "Memory Ratio",
+        "Time",
+        "Verify",
+        "Reason",
+    ]
+    rows = []
+    for result in results:
+        rows.append([
+            result.scenario,
+            result.source,
+            format_size(result.source_size_bytes),
+            format_size(result.source_memory_bytes),
+            format_size(result.compressed_size_bytes),
+            format_size(result.compressed_memory_bytes),
+            compression_ratio(result.compressed_size_bytes, result.source_size_bytes),
+            compression_ratio(result.compressed_memory_bytes, result.source_memory_bytes),
+            format_duration(result.duration_seconds),
+            "PASS" if result.verify_passed else "FAIL",
+            result.verify_message,
+        ])
+
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    def format_row(values: List[str]) -> str:
+        return " | ".join(value.ljust(widths[index]) for index, value in enumerate(values))
+
+    separator = "-+-".join("-" * width for width in widths)
+    print("\nCompression Summary")
+    print(format_row(headers))
+    print(separator)
+    for row in rows:
+        print(format_row(row))
+
+
+def collect_single_rank_result(
+    input_file: str,
+    output_file: str,
+    restore_file: str,
+    skip_verify: bool,
+) -> CompressionRunResult:
+    """Run single-rank compression and return the summary row."""
+    print(f"Running single-rank compression for {input_file}")
+    started_at = time.perf_counter()
+    reset_output_path(output_file)
+    reset_output_path(restore_file)
     compressor = TemplateCompressor()
-    compressed_trace = compressor.intra_compress(trace)
-    compressed_trace.show_memory()
-
-    # get the compressed trace memory size
-    compressed_size_mem = asizeof.asizeof(compressed_trace)
-    print(f"🧠 Compressed Trace memory size: {compressed_size_mem / 1024 / 1024:.2f} MB")
-
-    # write the compressed trace to a file
-    print(f"💾 Writing compressed trace to {output_file}")
+    compressed_trace, load_stats = compressor.compress_file(input_file)
     compressed_trace.write_file(output_file)
 
-    # get the compressed file size
-    compressed_file_size = os.path.getsize(output_file)
-    print(f"📦 Compressed file size: {compressed_file_size / 1024 / 1024:.2f} MB")
+    verify_passed = True
+    verify_message = "skipped"
+    if not skip_verify:
+        restored_trace = compressor.intra_decompress(CompressedTrace.from_file(output_file))
+        restored_trace.write_file(restore_file, origin=True)
+        verify_passed, verify_message = compare_trace_files_with_report(input_file, restore_file)
+    print_trace_memory_distribution("single-rank", compressed_trace)
+    print_node_statistics("single-rank", compressed_trace)
 
-    # calculate the compression ratio
-    file_compression_ratio = compressed_file_size / origin_file_size if origin_file_size else 0
-    mem_compression_ratio = compressed_size_mem / trace_size_mem if trace_size_mem else 0
-
-    print("\n📊 Compression Summary:")
-    print(
-        f"  💾 File compression ratio: {file_compression_ratio:.2%} "
-        f"(↓ {1 - file_compression_ratio:.2%})"
+    return CompressionRunResult(
+        scenario="single-rank",
+        source=input_file,
+        file_count=load_stats.file_count,
+        event_count=load_stats.event_count,
+        source_size_bytes=os.path.getsize(input_file),
+        source_memory_bytes=load_stats.loaded_memory_bytes,
+        compressed_size_bytes=os.path.getsize(output_file),
+        compressed_memory_bytes=asizeof.asizeof(compressed_trace),
+        verify_passed=verify_passed,
+        verify_message=verify_message,
+        memory_before=compressor.last_memory_before,
+        memory_after=compressor.last_memory_after,
+        duration_seconds=time.perf_counter() - started_at,
     )
-    print(
-        f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} "
-        f"(↓ {1 - mem_compression_ratio:.2%})"
-    )
-    # test correctness
-    print("\n🔍 Testing correctness...")
 
-    # 1) load the compressed trace
-    print(f"📥 Loading compressed trace from {output_file}")
-    compressed_trace = CompressedTrace.from_file(output_file)
-    print("✅ Loaded successfully.")
 
-    # 2) decompress the compressed trace
-    trace = compressor.intra_decompress(compressed_trace)
-    print("✅ Decompressed successfully.")
+def collect_multi_rank_result(
+    input_dir: str,
+    output_file: str,
+    restore_dir: str,
+    max_workers: int | None,
+    skip_verify: bool,
+    executor: str,
+    mpi_processes: int,
+    mpi_log_dir: str | None,
+) -> tuple[CompressionRunResult, str]:
+    """Compress each input file independently and return the summary row."""
+    del max_workers
+    print(f"Running multi-rank compression for {input_dir}")
+    started_at = time.perf_counter()
+    files = input_files(input_dir)
+    compressed_dir = output_parts_dir(output_file)
+    reset_output_path(compressed_dir)
+    reset_output_path(restore_dir)
+    os.makedirs(compressed_dir, exist_ok=True)
 
-    # 3) write the reconstructed trace to a file
-    print(f"💾 Writing reconstructed trace to {restore_file}")
-    trace.write_file(restore_file, origin=True)
+    total_load_stats = TraceLoadStats()
+    total_compressed_size = 0
+    total_compressed_memory = 0
+    aggregated_before: Dict[str, int] = {}
+    aggregated_after: Dict[str, int] = {}
 
-    # 4) compare the reconstructed file with the original file
-    print("🔎 Comparing reconstructed file with original...")
-
-    if filecmp.cmp(origin_file, restore_file, shallow=False):
-        print("✅ Correctness test PASSED: reconstructed file == original file")
+    if executor == "mpi":
+        mpi_summary = run_mpi_multi_rank_compression(
+            input_dir,
+            compressed_dir,
+            mpi_processes,
+            mpi_log_dir,
+        )
+        total_load_stats.file_count = int(mpi_summary["file_count"])
+        total_load_stats.event_count = int(mpi_summary["event_count"])
+        total_load_stats.source_size_bytes = int(mpi_summary["source_size_bytes"])
+        total_load_stats.loaded_memory_bytes = int(mpi_summary["source_memory_bytes"])
+        total_compressed_size = int(mpi_summary["compressed_size_bytes"])
+        total_compressed_memory = int(mpi_summary["compressed_memory_bytes"])
+        aggregated_before = {
+            key: int(value) for key, value in mpi_summary["memory_before"].items()
+        }
+        aggregated_after = {
+            key: int(value) for key, value in mpi_summary["memory_after"].items()
+        }
     else:
-        print("❌ Correctness test FAILED: reconstructed file != original file")
-        print("   You should inspect differences, e.g.:")
-        print(f"   diff -u {origin_file} {restore_file}")
+        for index, source_file in enumerate(files, start=1):
+            output_path = os.path.join(compressed_dir, os.path.basename(source_file))
+            compressor = TemplateCompressor()
+            compressed_trace, load_stats = compressor.compress_file(source_file, emit_summary=False)
+            compressed_trace.write_file(output_path)
 
-    print("Done.")
+            total_load_stats.file_count += load_stats.file_count
+            total_load_stats.event_count += load_stats.event_count
+            total_load_stats.source_size_bytes += load_stats.source_size_bytes
+            total_load_stats.loaded_memory_bytes += load_stats.loaded_memory_bytes
+            total_compressed_size += os.path.getsize(output_path)
+            total_compressed_memory += asizeof.asizeof(compressed_trace)
+            for key, value in compressor.last_memory_before.items():
+                aggregated_before[key] = aggregated_before.get(key, 0) + value
+            for key, value in compressor.last_memory_after.items():
+                aggregated_after[key] = aggregated_after.get(key, 0) + value
+            print_progress("multi-rank compress", index, len(files), started_at)
 
-def compress_multi_rank_demo(input_dir: str, origin_dir: str, output_file: str, restore_dir: str):
-    """
-    Compress multiple PerFlow-AI trace files using TemplateCompressor
-    """
-
-    print(f"📥 Loading trace from {input_dir}")
-    trace = Trace.from_dir(input_dir)
-    if output_file.endswith(".json"):
-        file_type = "json"
-    else:
-        file_type = "bin"
-
-    trace_size_mem = get_dir_json_mem_size(input_dir)
-    print(f"🧠 Original Trace memory size: {trace_size_mem / 1024 / 1024:.2f} MB")
-
-    o_trace_size_mem = asizeof.asizeof(trace)
-    print(f"🧠 Original Trace memory size: {o_trace_size_mem / 1024 / 1024:.2f} MB")
-
-    # write the original trace to a directory
-    print(f"💾 Writing original trace to {origin_dir}")
-    trace.write_dir(origin_dir, file_type)
-
-    # get the original directory size
-    origin_dir_size = sum(os.path.getsize(os.path.join(origin_dir, f)) \
-                          for f in os.listdir(origin_dir))
-    print(f"📦 Original directory size: {origin_dir_size / 1024 / 1024:.2f} MB")
-
-    # compress the trace
-    print("⚙️ Compressing trace ...")
-    compressor = TemplateCompressor()
-    compressed_trace = compressor.inter_compress(trace)
-    compressed_trace.show_memory()
-
-    # get the compressed trace memory size
-    compressed_size_mem = asizeof.asizeof(compressed_trace)
-    print(f"🧠 Compressed Trace memory size: {compressed_size_mem / 1024 / 1024:.2f} MB")
-
-    # write the compressed trace to a file
-    print(f"💾 Writing compressed trace to {output_file}")
-    compressed_trace.write_file(output_file)
-
-    # get the compressed file size
-    compressed_file_size = os.path.getsize(output_file)
-    print(f"📦 Compressed file size: {compressed_file_size / 1024 / 1024:.2f} MB")
-
-    # calculate the compression ratio
-    file_compression_ratio = compressed_file_size / origin_dir_size if origin_dir_size else 0
-    mem_compression_ratio = compressed_size_mem / trace_size_mem if trace_size_mem else 0
-
-    print("\n📊 Compression Summary:")
-    print(
-        f"  💾 File compression ratio: {file_compression_ratio:.2%} "
-        f"(↓ {1 - file_compression_ratio:.2%})"
-    )
-    print(
-        f"  🧠 Memory compression ratio: {mem_compression_ratio:.2%} "
-        f"(↓ {1 - mem_compression_ratio:.2%})"
-    )
-
-    # test correctness
-    print("\n🔍 Testing correctness...")
-
-    # 1) load the compressed trace
-    print(f"📥 Loading compressed trace from {output_file}")
-    compressed_trace = CompressedTrace.from_file(output_file)
-    print(f"✅ Loaded successfully, have {len(compressed_trace.get_ranks())} ranks.")
-
-    # 2) decompress the compressed trace
-    trace = compressor.inter_decompress(compressed_trace)
-    print("✅ Decompressed successfully.")
-
-    # 3) write the reconstructed trace to a directory
-    print(f"💾 Writing reconstructed trace to {restore_dir}")
-    trace.write_dir(restore_dir, file_type)
-
-    # 4) compare the reconstructed file with the original file
-    print("🔎 Comparing reconstructed traces with original...")
-
-    # Get file lists from both directories
-    origin_files: List[str] = sorted(os.listdir(origin_dir))
-    restore_files: List[str] = sorted(os.listdir(restore_dir))
-
-    # Check if file lists are identical (names and number)
-    if origin_files != restore_files:
-        print("❌ Correctness test FAILED: File lists do not match.")
-        print(f"   Original files count: {len(origin_files)}")
-        print(f"   Reconstructed files count: {len(restore_files)}")
-        print("   Differences in file names/counts detected.")
-        return # Exit the function or skip further comparison
-
-    # Compare each corresponding file
-    all_passed = True
-    for filename in origin_files:
-        origin_file = os.path.join(origin_dir, filename)
-        restore_file = os.path.join(restore_dir, filename)
-
-        # Check if they are files before attempting comparison
-        if os.path.isfile(origin_file) and os.path.isfile(restore_file):
-            if filecmp.cmp(origin_file, restore_file, shallow=False):
-                print(f"  ✅ {filename} PASSED") # Optional: print success for each file
-            else:
-                print(f"  ❌ Correctness test FAILED: {filename} != original file")
-                print("     You should inspect differences, e.g.:")
-                print(f"     diff -u {origin_file} {restore_file}")
-                all_passed = False
+    compressed_files = input_files(compressed_dir)
+    verify_passed = True
+    verify_message = "skipped"
+    if not skip_verify:
+        restored_files_dir = restore_dir
+        os.makedirs(restored_files_dir, exist_ok=True)
+        if executor == "mpi":
+            verify_passed, verify_message = run_mpi_verify(
+                "compressed_parts",
+                input_dir,
+                restored_files_dir,
+                mpi_processes,
+                mpi_log_dir,
+                compressed_dir=compressed_dir,
+            )
         else:
-            print(f"  ⚠️ Skipping comparison for non-file item: {filename}")
+            verify_started_at = time.perf_counter()
+            for index, compressed_file in enumerate(compressed_files, start=1):
+                compressed_trace = CompressedTrace.from_file(compressed_file)
+                restored_trace = TemplateCompressor().inter_decompress(compressed_trace)
+                restored_path = os.path.join(restored_files_dir, os.path.basename(compressed_file))
+                restored_trace.write_file(restored_path, origin=True)
+                print_progress("multi-rank verify", index, len(compressed_files), verify_started_at)
 
-    if all_passed:
-        print("✅ Correctness test PASSED: All reconstructed files match original files.")
-    else:
-        print("❌ Correctness test FAILED: One or more files failed comparison.")
+            verify_passed, verify_message = compare_trace_directories_with_report(input_dir, restored_files_dir)
+    print_trace_memory_distribution_for_files("multi-rank", compressed_files)
+    print_node_statistics_for_files("multi-rank", compressed_files)
+    return (
+        CompressionRunResult(
+            scenario="multi-rank",
+            source=input_dir,
+            file_count=total_load_stats.file_count,
+            event_count=total_load_stats.event_count,
+            source_size_bytes=directory_size(files),
+            source_memory_bytes=total_load_stats.loaded_memory_bytes,
+            compressed_size_bytes=total_compressed_size,
+            compressed_memory_bytes=total_compressed_memory,
+            verify_passed=verify_passed,
+            verify_message=verify_message,
+            memory_before=aggregated_before,
+            memory_after=aggregated_after,
+            duration_seconds=time.perf_counter() - started_at,
+        ),
+        compressed_dir,
+    )
 
-    print("Done.")
+
+def collect_multi_rank_merge_result(
+    input_dir: str,
+    compressed_dir: str,
+    output_file: str,
+    restore_dir: str,
+    baseline_memory_bytes: int,
+    skip_verify: bool,
+    executor: str,
+    mpi_processes: int,
+    mpi_log_dir: str | None,
+) -> CompressionRunResult:
+    """Merge previously compressed rank files and return the summary row."""
+    print(f"Running multi-rank+merge for {compressed_dir}")
+    started_at = time.perf_counter()
+    reset_output_path(output_file)
+    reset_output_path(restore_dir)
+    compressor = TemplateCompressor()
+    compressed_trace = compressor.merge_compressed_files(input_files(compressed_dir))
+    compressed_trace.write_file(output_file)
+
+    verify_passed = True
+    verify_message = "skipped"
+    if not skip_verify:
+        file_type = "json" if output_file.endswith(".json") else "bin"
+        restored_trace = compressor.inter_decompress(CompressedTrace.from_file(output_file))
+        restored_trace.write_dir(restore_dir, file_type)
+        if executor == "mpi":
+            verify_passed, verify_message = run_mpi_verify(
+                "directory_compare",
+                input_dir,
+                restore_dir,
+                mpi_processes,
+                mpi_log_dir,
+            )
+        else:
+            verify_passed, verify_message = compare_trace_directories_with_report(input_dir, restore_dir)
+    print_trace_memory_distribution("multi-rank+merge", compressed_trace)
+    print_node_statistics("multi-rank+merge", compressed_trace)
+
+    return CompressionRunResult(
+        scenario="multi-rank+merge",
+        source=input_dir,
+        file_count=len(input_files(input_dir)),
+        event_count=0,
+        source_size_bytes=directory_size(input_files(input_dir)),
+        source_memory_bytes=baseline_memory_bytes,
+        compressed_size_bytes=os.path.getsize(output_file),
+        compressed_memory_bytes=asizeof.asizeof(compressed_trace),
+        verify_passed=verify_passed,
+        verify_message=verify_message,
+        memory_before=compressor.last_memory_before,
+        memory_after=compressor.last_memory_after,
+        duration_seconds=time.perf_counter() - started_at,
+    )
 
 
-
-def main():
-    """Entry point for the command-line interface."""
+def main() -> None:
+    """Parse arguments and run demos."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json",
-                        type=str, help="input trace file path")
-    parser.add_argument("--origin_file", default="origin.bin",
-                        type=str, help="path to write original trace file")
-    parser.add_argument("--output_file", default="compressed.bin",
-                        type=str, help="output compressed trace file path")
-    parser.add_argument("--reconstruct_file", default="reconstructed.bin",
-                        type=str, help="path to write restored trace file")
-    parser.add_argument("--multi_rank_input_dir",
-                        type=str, help="input directory path for multi-rank")
-    parser.add_argument("--multi_rank_origin_dir", default="origin_dir",
-                        type=str, help="origin directory path to write original traces")
-    parser.add_argument("--multi_rank_output_file", default="compressed_multi_rank.json",
-                        type=str, help="output compressed trace file path for multi-rank")
-    parser.add_argument("--multi_rank_reconstruct_dir", default="reconstructed_dir",
-                        type=str, help="path to write restored trace dir for multi-rank")
-
+    parser.add_argument("--input_file", default="tests/example_trace/profiler_585.json")
+    parser.add_argument("--output_file", default="compressed.bin")
+    parser.add_argument("--reconstruct_file", default="reconstructed.bin")
+    parser.add_argument("--multi_rank_input_dir")
+    parser.add_argument("--multi_rank_output_file", default="compressed_multi_rank.json")
+    parser.add_argument("--multi_rank_reconstruct_dir", default="reconstructed_dir")
+    parser.add_argument("--max_workers", type=int, default=None)
+    parser.add_argument("--skip_verify", action="store_true")
+    parser.add_argument("--multi_rank_executor", choices=["serial", "mpi"], default="serial")
+    parser.add_argument("--mpi_processes", type=int, default=4)
+    parser.add_argument("--mpi_log_dir")
     args = parser.parse_args()
 
-    print("=" * 50)
-    print("Compressing a single-rank trace demo")
-    print("=" * 50)
-    compress_single_rank_demo(args.input_file, args.origin_file,
-                              args.output_file, args.reconstruct_file)
+    results: List[CompressionRunResult] = []
+    results.append(
+        collect_single_rank_result(
+            args.input_file,
+            args.output_file,
+            args.reconstruct_file,
+            args.skip_verify,
+        )
+    )
 
-    if args.multi_rank_input_dir and args.multi_rank_origin_dir \
-        and args.multi_rank_output_file and args.multi_rank_reconstruct_dir:
-        print("=" * 50)
-        print("Compressing a multi-rank trace demo")
-        print("=" * 50)
-        compress_multi_rank_demo(args.multi_rank_input_dir, args.multi_rank_origin_dir,
-                                 args.multi_rank_output_file, args.multi_rank_reconstruct_dir)
-    else:
-        print("No multi-rank input directory provided, skipping multi-rank compression.")
-        print("To compress multi-rank traces, provide --multi_rank_input_dir, \
-              --multi_rank_origin_dir, --multi_rank_output_file, and --multi_rank_reconstruct_dir.")
+    if args.multi_rank_input_dir:
+        multi_result, compressed_dir = collect_multi_rank_result(
+            args.multi_rank_input_dir,
+            args.multi_rank_output_file,
+            args.multi_rank_reconstruct_dir,
+            max_workers=args.max_workers,
+            skip_verify=args.skip_verify,
+            executor=args.multi_rank_executor,
+            mpi_processes=args.mpi_processes,
+            mpi_log_dir=args.mpi_log_dir,
+        )
+        results.append(multi_result)
+        merged_output = f"{os.path.splitext(args.multi_rank_output_file)[0]}_merged{os.path.splitext(args.multi_rank_output_file)[1]}"
+        merged_restore = f"{args.multi_rank_reconstruct_dir}_merged"
+        results.append(
+            collect_multi_rank_merge_result(
+                args.multi_rank_input_dir,
+                compressed_dir,
+                merged_output,
+                merged_restore,
+                baseline_memory_bytes=multi_result.source_memory_bytes,
+                skip_verify=args.skip_verify,
+                executor=args.multi_rank_executor,
+                mpi_processes=args.mpi_processes,
+                mpi_log_dir=args.mpi_log_dir,
+            )
+        )
+
+    print_summary_table(results)
 
 
 if __name__ == "__main__":

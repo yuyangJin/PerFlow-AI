@@ -22,15 +22,14 @@ pipeline, enabling both efficient storage and faithful reconstruction.
 
 from __future__ import annotations
 import json
-from typing import Any, Dict, List, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 from abc import ABC, abstractmethod
 import os
 from collections import defaultdict
 import msgpack
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import multiprocessing
 
-from perflowai.padoc.utils import logger, analyze_node_dict
+from perflowai.padoc.utils import logger, analyze_node_dict, to_json_safe
 from perflowai.padoc.event import Event, MergeEvent, KernelEvent, MergeKernelEvent, memory_breakdown_templates
 from perflowai.padoc._compat import asizeof
 from perflowai.padoc.node import (
@@ -40,6 +39,46 @@ from perflowai.padoc.node import (
     count_trace_nodes,
     LaunchSubtreeIndex,
 )
+
+
+@dataclass(frozen=True)
+class TraceFileData:
+    """Loaded trace payload for one source file."""
+
+    path: str
+    rank: str
+    events: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+    source_size_bytes: int
+    loaded_memory_bytes: int
+
+    @property
+    def event_count(self) -> int:
+        return len(self.events)
+
+
+@dataclass
+class TraceLoadStats:
+    """Aggregated loading statistics."""
+
+    file_count: int = 0
+    event_count: int = 0
+    source_size_bytes: int = 0
+    loaded_memory_bytes: int = 0
+
+    def add_file(self, file_data: TraceFileData) -> None:
+        self.file_count += 1
+        self.event_count += file_data.event_count
+        self.source_size_bytes += file_data.source_size_bytes
+        self.loaded_memory_bytes += file_data.loaded_memory_bytes
+
+
+@dataclass(frozen=True)
+class TraceLoadResult:
+    """Trace plus loading statistics."""
+
+    trace: "Trace"
+    stats: TraceLoadStats
 
 class BaseTrace(ABC):
     """Abstract base class for all trace types in the trace tree.
@@ -168,65 +207,103 @@ class Trace(BaseTrace):
     @classmethod
     def from_file(cls, path: str) -> 'Trace':
         """Load trace from a single JSON/msgpack file."""
-        rank, events, metadata = cls._load_single_file_data(path)
+        return cls.from_file_with_stats(path).trace
 
-        return cls({rank: events}, {rank: metadata})
+    @classmethod
+    def from_file_with_stats(cls, path: str) -> TraceLoadResult:
+        """Load one trace file together with loading statistics."""
+        file_data = cls.load_file_data(path)
+        trace = cls._build_from_loaded_files([file_data])
+        stats = TraceLoadStats()
+        stats.add_file(file_data)
+        return TraceLoadResult(trace=trace, stats=stats)
 
     @classmethod
     def from_dir(cls, path: str, max_workers: Optional[int] = None) -> 'Trace':
-        """Load a trace from a directory of JSON/msgpack files.
-
-        Args:
-            path: Directory path containing trace files.
-            max_workers: Maximum number of worker threads. Defaults to CPU count.
-
-        Returns:
-            A Trace object containing all loaded events and metadata.
-        """
-        if max_workers is None:
-            max_workers = multiprocessing.cpu_count()
-
-        files = [os.path.join(path, file) for file in os.listdir(path)]
-        all_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        all_metadata: Dict[str, Dict[str, Any]] = defaultdict(dict)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(cls._load_single_file_data, f): f for f in files}
-            for future in as_completed(futures):
-                rank, events_list, metadata_dict = future.result()
-                all_events[rank].extend(events_list)
-                all_metadata[rank].update(metadata_dict)
-
-        return cls(dict(all_events), dict(all_metadata))
+        """Load a trace directory."""
+        return cls.from_dir_with_stats(path, max_workers=max_workers).trace
 
     @staticmethod
-    def _load_single_file_data(path: str) -> tuple[str, List[Dict[str, Any]], Dict[str, Any]]:
+    def _read_trace_payload(path: str) -> Dict[str, Any]:
+        """Read one supported trace file into a Python payload."""
+        if path.endswith(".json"):
+            with open(path, "r", encoding="utf-8") as file_obj:
+                return json.load(file_obj)
+        if path.endswith(".bin"):
+            with open(path, "rb") as file_obj:
+                return msgpack.load(file_obj, strict_map_key=False)
+        raise ValueError(f"Unsupported trace file format: {path}")
+
+    @staticmethod
+    def _load_single_file_data(path: str) -> TraceFileData:
         """Load data from a single JSON or msgpack file.
 
         Args:
             path: Path to the trace file.
 
         Returns:
-            A tuple of (rank, events_list, metadata_dict).
+            Loaded file data with file-level statistics.
         """
-        data: Dict[str, Any] = {}
-        if path.endswith(".json"):
-            with open(path, 'r', encoding="utf-8") as f:
-                data = json.load(f)
-        elif path.endswith(".bin"):
-            with open(path, 'rb') as f:
-                data = msgpack.load(f, strict_map_key=False)
-        else:
-            logger.warning("Unsupported trace file format: %s", path)
-            return str(0), [], {}
-
+        data = Trace._read_trace_payload(path)
         rank = data.get("distributedInfo", {}).get("rank", "0")
         events: List[Dict[str, Any]] = data.get("traceEvents", [])
         logger.info("Loaded %d events from %s", len(events), path)
-        metadata: Dict[str, Any] = \
-            {k: v for k, v in data.items() if k != "traceEvents"}
+        metadata: Dict[str, Any] = {key: value for key, value in data.items() if key != "traceEvents"}
+        return TraceFileData(
+            path=path,
+            rank=str(rank),
+            events=events,
+            metadata=metadata,
+            source_size_bytes=os.path.getsize(path),
+            loaded_memory_bytes=asizeof.asizeof(data),
+        )
 
-        return str(rank), events, metadata
+    @classmethod
+    def load_file_data(cls, path: str) -> TraceFileData:
+        """Public wrapper for loading one file payload."""
+        return cls._load_single_file_data(path)
+
+    @staticmethod
+    def _list_trace_files(path: str) -> List[str]:
+        """Return supported trace files in deterministic order."""
+        files = []
+        for file_name in sorted(os.listdir(path)):
+            file_path = os.path.join(path, file_name)
+            if not os.path.isfile(file_path):
+                continue
+            if file_path.endswith((".json", ".bin")):
+                files.append(file_path)
+        return files
+
+    @classmethod
+    def iter_dir_data(cls, path: str, max_workers: Optional[int] = None) -> Iterator[TraceFileData]:
+        """Yield trace files sequentially to minimize peak memory usage."""
+        del max_workers
+        files = cls._list_trace_files(path)
+        logger.info("Loading %d trace files sequentially", len(files))
+        for file_path in files:
+            yield cls._load_single_file_data(file_path)
+
+    @classmethod
+    def _build_from_loaded_files(cls, files: Iterable[TraceFileData]) -> "Trace":
+        all_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        all_metadata: Dict[str, Dict[str, Any]] = defaultdict(dict)
+
+        for file_data in files:
+            all_events[file_data.rank].extend(file_data.events)
+            all_metadata[file_data.rank].update(file_data.metadata)
+
+        return cls(dict(all_events), dict(all_metadata))
+
+    @classmethod
+    def from_dir_with_stats(cls, path: str, max_workers: Optional[int] = None) -> TraceLoadResult:
+        """Load a trace directory together with loading statistics."""
+        file_data_list = list(cls.iter_dir_data(path, max_workers=max_workers))
+        trace = cls._build_from_loaded_files(file_data_list)
+        stats = TraceLoadStats()
+        for file_data in file_data_list:
+            stats.add_file(file_data)
+        return TraceLoadResult(trace=trace, stats=stats)
 
     def write_file(self, path: str, rank: str = "", origin: bool = False):
         out = {}
@@ -258,7 +335,7 @@ class Trace(BaseTrace):
                                     event_dict["ph"]  = ph
                                 event_dict["ts"] += self.start_timestamp[r]
 
-                                trace_events.append(event_dict)
+                                trace_events.append(to_json_safe(event_dict))
 
             trace_events = sorted(
                 trace_events,

@@ -7,12 +7,13 @@ and decompression methods.
 """
 
 from __future__ import annotations
+import copy
 from typing import List, Dict, Union, Optional, Tuple, Any
 from abc import ABC, abstractmethod
 import time
 import re
 from collections import defaultdict
-from .trace import BaseTrace, Trace, CompressedTrace
+from .trace import BaseTrace, Trace, CompressedTrace, TraceFileData, TraceLoadStats
 from .node import Node, CPUNode, GPUNode, SameCPUNode, KernelLaunchNode, KernelsLaunchNode
 from .event import Event, MergeEvent, KernelEvent, MergeKernelEvent, is_same_event, memory_breakdown_templates
 from .utils import logger, log_memory_diff
@@ -29,7 +30,7 @@ class Compressor(ABC):
         """Perform intra-rank compression."""
         raise NotImplementedError
 
-    def inter_compress(self, trace: BaseTrace) -> BaseTrace:
+    def inter_compress(self, trace: BaseTrace, merge_ranks: bool = False) -> BaseTrace:
         """Perform inter-rank compression."""
         raise NotImplementedError
 
@@ -69,6 +70,13 @@ class TemplateCompressor(Compressor):
         self.compress_tree_time = 0
         self.find_template_time = 0
         self.check_same_node_time = 0
+        self.last_memory_before: Dict[str, int] = {}
+        self.last_memory_after: Dict[str, int] = {}
+        self.last_gpu_event_count = 0
+
+    def _reset_template_state(self) -> None:
+        self.event_templates = []
+        self.name2indexes = defaultdict(list)
 
     def _compress_rank(self, trace: BaseTrace, rank: str) -> \
         Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]:
@@ -92,8 +100,6 @@ class TemplateCompressor(Compressor):
         # pid -> tid -> ph -> node
         compressed_ranks: Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]] = {}
 
-        logger.info("Intra compressing rank %s", rank)
-
         for rank, pid, tid, ph, events in trace.iter_events(rank):
             if not "stream" in tid:
                 continue
@@ -113,7 +119,7 @@ class TemplateCompressor(Compressor):
                     f"GPU events should not have same correlation {corr}"
                 self.gpu_events[corr] = KernelEvent(event, pid, tid.split(" ")[1], ph)
 
-        logger.info("There are %d GPU events", len(self.gpu_events))
+        self.last_gpu_event_count = len(self.gpu_events)
 
         for _, pid, tid, ph, events in trace.iter_events(rank):
 
@@ -129,8 +135,6 @@ class TemplateCompressor(Compressor):
                 build_start_time = time.time()
                 root, abnoraml_root = self._build_call_tree(events, is_gpu)
                 if abnoraml_root is not None:
-                    logger.warning("Abnormal root found, pid %s tid %s", pid, tid)
-                    # new_root = self._compress_node_new(abnoraml_root, self.templates, self.name2id)
                     compressed_ranks[str(pid)][str(tid) + "-abnormal"] = {}
                     compressed_ranks[str(pid)][str(tid) + "-abnormal"][ph] = abnoraml_root
                 self.build_tree_time += time.time() - build_start_time
@@ -156,8 +160,6 @@ class TemplateCompressor(Compressor):
                 build_start_time = time.time()
                 root, abnoraml_root = self._build_call_tree(events, is_gpu)
                 if abnoraml_root is not None:
-                    logger.warning("Abnormal root found, pid %s tid %s", pid, tid)
-                    # new_root = self._compress_node_new(abnoraml_root, self.templates, self.name2id)
                     compressed_ranks[str(pid)][str(tid) + "-abnormal"] = {}
                     compressed_ranks[str(pid)][str(tid) + "-abnormal"][ph] = abnoraml_root
                 self.build_tree_time += time.time() - build_start_time
@@ -173,14 +175,17 @@ class TemplateCompressor(Compressor):
 
         return compressed_ranks
 
-    def intra_compress(self, trace: BaseTrace, rank: str = "") -> BaseTrace:
+    def intra_compress(
+        self,
+        trace: BaseTrace,
+        rank: str = "",
+        emit_summary: bool = True,
+    ) -> BaseTrace:
 
         if rank == "":
             rank = trace.get_ranks()[0]
         compressed_rank = self._compress_rank(trace, rank)
         ranks = {rank: compressed_rank}
-
-        logger.info("After compressing, have %d templates", len(self.event_templates))
 
         before = memory_breakdown_templates(self.event_templates)
 
@@ -188,17 +193,36 @@ class TemplateCompressor(Compressor):
             m.compress_values()
 
         after = memory_breakdown_templates(self.event_templates)
+        self.last_memory_before = before
+        self.last_memory_after = after
 
-        log_memory_diff(logger, before, after)
+        logger.info(
+            "Compressed rank %s | templates=%d | gpu_events=%d",
+            rank,
+            len(self.event_templates),
+            self.last_gpu_event_count,
+        )
+
+        if emit_summary:
+            log_memory_diff(logger, before, after)
 
 
         return CompressedTrace(self.event_templates, ranks, trace.get_metadata(), trace.get_start_time())
 
-    def inter_compress(self, trace: BaseTrace) -> BaseTrace:
+    def _finalize_template_values(self, emit_summary: bool = True) -> None:
+        before = memory_breakdown_templates(self.event_templates)
+        for merged_event in self.event_templates:
+            merged_event.compress_values()
+        after = memory_breakdown_templates(self.event_templates)
+        self.last_memory_before = before
+        self.last_memory_after = after
+        if emit_summary:
+            log_memory_diff(logger, before, after)
+
+    def _inter_compress_shared(self, trace: Trace) -> CompressedTrace:
         assert isinstance(trace, Trace), "Trace must be of type Trace"
 
-        self.event_templates = []
-        self.name2indexes = defaultdict(list)
+        self._reset_template_state()
         all_compressed_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
 
         for rank in trace.get_ranks():
@@ -207,20 +231,315 @@ class TemplateCompressor(Compressor):
 
         logger.info("After compressing all ranks, have %d templates", len(self.event_templates))
 
-        before = memory_breakdown_templates(self.event_templates)
-
-        for m in self.event_templates:
-            m.compress_values()
-
-        after = memory_breakdown_templates(self.event_templates)
-
-        log_memory_diff(logger, before, after)
+        self._finalize_template_values()
 
         return CompressedTrace(
             self.event_templates,
             all_compressed_ranks,
             trace.get_metadata(),
             trace.get_start_time(),
+        )
+
+    @staticmethod
+    def _copy_rank_trace(trace: Trace, rank: str) -> Trace:
+        rank_trace = Trace(
+            metadata={rank: trace.get_metadata()[rank]},
+            start_timestamp={rank: trace.get_start_time()[rank]},
+        )
+        rank_trace.set_ranks({rank: trace.ranks[rank]})
+        return rank_trace
+
+    @staticmethod
+    def _trace_from_file_data(file_data: TraceFileData) -> Trace:
+        return Trace._build_from_loaded_files([file_data])
+
+    @staticmethod
+    def _canonicalize_rank_trace(trace: Trace, rank: str) -> Trace:
+        """Rebuild a decompressed rank trace into the same normalized form as file loading."""
+        events: List[Dict[str, Any]] = []
+        start_timestamp = trace.get_start_time()[rank]
+
+        for _, pid, tid, ph, rank_events in trace.iter_events(rank):
+            for event in rank_events:
+                event_dict = event.to_dict().copy()
+                if "pid" not in event_dict:
+                    event_dict["pid"] = pid
+                normalized_tid = tid
+                if normalized_tid.startswith("stream "):
+                    normalized_tid = normalized_tid.split(" ", maxsplit=1)[1]
+                if normalized_tid.endswith("-abnormal"):
+                    normalized_tid = normalized_tid.split("-", maxsplit=1)[0]
+                if "tid" not in event_dict:
+                    event_dict["tid"] = normalized_tid
+                if "ph" not in event_dict:
+                    event_dict["ph"] = ph
+                event_dict["ts"] += start_timestamp
+                events.append(event_dict)
+
+        metadata = {rank: trace.get_metadata()[rank]}
+        return Trace(events={rank: events}, metadata=metadata)
+
+    @classmethod
+    def _compress_file_data(
+        cls,
+        file_data: TraceFileData,
+        emit_summary: bool = False,
+    ) -> Tuple[CompressedTrace, TraceLoadStats]:
+        stats = TraceLoadStats()
+        stats.add_file(file_data)
+        trace = cls._trace_from_file_data(file_data)
+        compressor = cls()
+        compressed_trace = compressor.intra_compress(
+            trace,
+            file_data.rank,
+            emit_summary=emit_summary,
+        )
+        compressed_trace._memory_before = compressor.last_memory_before
+        compressed_trace._memory_after = compressor.last_memory_after
+        return compressed_trace, stats
+
+    @staticmethod
+    def _offset_node_templates(node: Any, template_offset: int) -> Any:
+        shifted = copy.deepcopy(node)
+
+        def visit(current: Any) -> None:
+            if hasattr(current, "template_index"):
+                template_index = getattr(current, "template_index")
+                if isinstance(template_index, int):
+                    if template_index >= 0:
+                        current.template_index += template_offset
+                else:
+                    current.template_index = template_index + template_offset
+
+            if hasattr(current, "gpu_template_index"):
+                gpu_template_index = getattr(current, "gpu_template_index")
+                if isinstance(gpu_template_index, int):
+                    if gpu_template_index >= 0:
+                        current.gpu_template_index += template_offset
+                else:
+                    current.gpu_template_index = gpu_template_index + template_offset
+
+            children = getattr(current, "children", None)
+            if children:
+                for child in children:
+                    visit(child)
+
+            slots = getattr(current, "slots", None)
+            if not slots:
+                return
+            if isinstance(slots[0], list):
+                for slot in slots:
+                    for child in slot:
+                        visit(child)
+                return
+            for child in slots:
+                visit(child)
+
+        visit(shifted)
+        return shifted
+
+    def _merge_independent_compressed_traces(
+        self,
+        compressed_traces: List[CompressedTrace],
+    ) -> CompressedTrace:
+        event_templates: List[MergeEvent] = []
+        merged_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+        metadata: Dict[str, Any] = {}
+        start_timestamp: Dict[str, int] = {}
+
+        for compressed_trace in compressed_traces:
+            offset = len(event_templates)
+            event_templates.extend(copy.deepcopy(compressed_trace.event_templates))
+            metadata.update(compressed_trace.get_metadata())
+            start_timestamp.update(compressed_trace.get_start_time())
+
+            for rank, processes in compressed_trace.ranks.items():
+                merged_ranks.setdefault(rank, {})
+                for pid, threads in processes.items():
+                    merged_ranks[rank].setdefault(pid, {})
+                    for tid, phases in threads.items():
+                        merged_ranks[rank][pid].setdefault(tid, {})
+                        for ph, node in phases.items():
+                            merged_ranks[rank][pid][tid][ph] = self._offset_node_templates(
+                                node,
+                                offset,
+                            )
+
+        return CompressedTrace(event_templates, merged_ranks, metadata, start_timestamp)
+
+    def _append_independent_rank(
+        self,
+        compressed_trace: CompressedTrace,
+        independent_rank_trace: CompressedTrace,
+    ) -> CompressedTrace:
+        if not compressed_trace.event_templates and not compressed_trace.ranks:
+            return independent_rank_trace
+        return self._merge_independent_compressed_traces([compressed_trace, independent_rank_trace])
+
+    def _compress_ranks_independently(self, trace: Trace) -> CompressedTrace:
+        compressed_traces: List[CompressedTrace] = []
+        for rank in trace.get_ranks():
+            rank_compressor = TemplateCompressor()
+            rank_trace = self._copy_rank_trace(trace, rank)
+            compressed_traces.append(rank_compressor.intra_compress(rank_trace, rank))
+        return self._merge_independent_compressed_traces(compressed_traces)
+
+    def _merge_independent_ranks(self, compressed_trace: CompressedTrace) -> CompressedTrace:
+        merge_compressor = TemplateCompressor()
+        merge_compressor._reset_template_state()
+        merged_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
+
+        for rank in compressed_trace.get_ranks():
+            rank_only = CompressedTrace(
+                compressed_trace.event_templates,
+                {rank: compressed_trace.ranks[rank]},
+                {rank: compressed_trace.get_metadata()[rank]},
+                {rank: compressed_trace.get_start_time()[rank]},
+            )
+            raw_rank_trace = TemplateCompressor().intra_decompress(rank_only, rank)
+            canonical_rank_trace = self._canonicalize_rank_trace(raw_rank_trace, rank)
+            merged_ranks[rank] = merge_compressor._compress_rank(canonical_rank_trace, rank)
+
+        merge_compressor._finalize_template_values()
+        return CompressedTrace(
+            merge_compressor.event_templates,
+            merged_ranks,
+            compressed_trace.get_metadata(),
+            compressed_trace.get_start_time(),
+        )
+
+    def inter_compress(self, trace: BaseTrace, merge_ranks: bool = False) -> BaseTrace:
+        assert isinstance(trace, Trace), "Trace must be of type Trace"
+        independently_compressed = self._compress_ranks_independently(trace)
+        if not merge_ranks:
+            return independently_compressed
+        return self._merge_independent_ranks(independently_compressed)
+
+    def compress_file(
+        self,
+        path: str,
+        emit_summary: bool = True,
+    ) -> Tuple[CompressedTrace, TraceLoadStats]:
+        """Compress one trace file using the same pipeline as directory mode."""
+        file_data = Trace.load_file_data(path)
+        return self._compress_file_data(file_data, emit_summary=emit_summary)
+
+    def merge_compressed_files(
+        self,
+        paths: List[str],
+    ) -> CompressedTrace:
+        """Merge independently compressed rank files into a shared compressed trace."""
+        merge_compressor = TemplateCompressor()
+        merge_compressor._reset_template_state()
+        started_at = time.perf_counter()
+        total_paths = len(paths)
+        merged_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
+        merged_metadata: Dict[str, Any] = {}
+        merged_start_timestamp: Dict[str, int] = {}
+
+        for index, path in enumerate(sorted(paths), start=1):
+            compressed_trace = CompressedTrace.from_file(path)
+            rank = compressed_trace.get_ranks()[0]
+            raw_rank_trace = TemplateCompressor().intra_decompress(compressed_trace, rank)
+            canonical_rank_trace = self._canonicalize_rank_trace(raw_rank_trace, rank)
+            merged_ranks[rank] = merge_compressor._compress_rank(canonical_rank_trace, rank)
+            logger.info(
+                "Merged rank %s | templates=%d",
+                rank,
+                len(merge_compressor.event_templates),
+            )
+            merged_metadata.update(compressed_trace.get_metadata())
+            merged_start_timestamp.update(compressed_trace.get_start_time())
+            elapsed = time.perf_counter() - started_at
+            average = elapsed / index if index else 0.0
+            eta = average * max(total_paths - index, 0)
+            logger.info(
+                "merge progress %d/%d | elapsed=%.1fs | eta=%.1fs",
+                index,
+                total_paths,
+                elapsed,
+                eta,
+            )
+
+        merge_compressor._finalize_template_values(emit_summary=True)
+        self.last_memory_before = merge_compressor.last_memory_before
+        self.last_memory_after = merge_compressor.last_memory_after
+        return CompressedTrace(
+            merge_compressor.event_templates,
+            merged_ranks,
+            merged_metadata,
+            merged_start_timestamp,
+        )
+
+    def inter_compress_dir(
+        self,
+        path: str,
+        max_workers: Optional[int] = None,
+        merge_ranks: bool = False,
+    ) -> Tuple[CompressedTrace, TraceLoadStats]:
+        """Compress a multi-rank trace directory with threaded file workers."""
+        load_stats = TraceLoadStats()
+        independent_result = CompressedTrace([], {}, {}, {})
+        merge_compressor = TemplateCompressor() if merge_ranks else None
+        merged_ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
+        merged_metadata: Dict[str, Any] = {}
+        merged_start_timestamp: Dict[str, int] = {}
+        aggregated_before: Dict[str, int] = defaultdict(int)
+        aggregated_after: Dict[str, int] = defaultdict(int)
+        for file_data in Trace.iter_dir_data(path, max_workers=max_workers):
+            independent_rank_trace, file_stats = self._compress_file_data(
+                file_data,
+                emit_summary=False,
+            )
+            load_stats.file_count += file_stats.file_count
+            load_stats.event_count += file_stats.event_count
+            load_stats.source_size_bytes += file_stats.source_size_bytes
+            load_stats.loaded_memory_bytes += file_stats.loaded_memory_bytes
+
+            independent_result = self._append_independent_rank(
+                independent_result,
+                independent_rank_trace,
+            )
+            for key, value in getattr(independent_rank_trace, "_memory_before", {}).items():
+                aggregated_before[key] += value
+            for key, value in getattr(independent_rank_trace, "_memory_after", {}).items():
+                aggregated_after[key] += value
+
+            if merge_ranks and merge_compressor is not None:
+                rank = independent_rank_trace.get_ranks()[0]
+                raw_rank_trace = TemplateCompressor().intra_decompress(
+                    independent_rank_trace,
+                    rank,
+                )
+                canonical_rank_trace = self._canonicalize_rank_trace(raw_rank_trace, rank)
+                rank_ranks = merge_compressor._compress_rank(canonical_rank_trace, rank)
+                if rank not in merged_ranks:
+                    merged_ranks[rank] = rank_ranks
+                else:
+                    for pid, threads in rank_ranks.items():
+                        merged_ranks[rank].setdefault(pid, {}).update(threads)
+                merged_metadata.update(independent_rank_trace.get_metadata())
+                merged_start_timestamp.update(independent_rank_trace.get_start_time())
+                del raw_rank_trace
+
+        if not merge_ranks or merge_compressor is None:
+            self.last_memory_before = dict(aggregated_before)
+            self.last_memory_after = dict(aggregated_after)
+            if self.last_memory_before or self.last_memory_after:
+                log_memory_diff(logger, self.last_memory_before, self.last_memory_after)
+            return independent_result, load_stats
+
+        merge_compressor._finalize_template_values(emit_summary=True)
+        self.last_memory_before = merge_compressor.last_memory_before
+        self.last_memory_after = merge_compressor.last_memory_after
+        return (
+            CompressedTrace(
+                merge_compressor.event_templates,
+                merged_ranks,
+                merged_metadata,
+                merged_start_timestamp,
+            ),
+            load_stats,
         )
 
     def _normalize_name(self, name: str) -> str:
