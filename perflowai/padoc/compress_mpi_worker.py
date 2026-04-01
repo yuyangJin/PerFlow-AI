@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import os
@@ -18,7 +19,12 @@ from perflowai.padoc import TemplateCompressor
 from perflowai.padoc._compat import asizeof
 from perflowai.padoc.event import memory_breakdown_templates
 from perflowai.padoc.node import collect_trace_node_stats
-from perflowai.padoc.trace import compressed_trace_core_parts
+from perflowai.padoc.trace import (
+    compressed_trace_bin_bytes,
+    compressed_trace_core_parts,
+    serialized_trace_file_size,
+    source_trace_json_bytes,
+)
 
 
 def input_files(input_dir: str) -> List[str]:
@@ -75,8 +81,10 @@ def to_plain_summary(summary: Dict[str, object]) -> Dict[str, object]:
         "event_count": summary["event_count"],
         "source_size_bytes": summary["source_size_bytes"],
         "source_memory_bytes": summary["source_memory_bytes"],
+        "source_gzip_bytes": summary["source_gzip_bytes"],
         "compressed_size_bytes": summary["compressed_size_bytes"],
         "compressed_memory_bytes": summary["compressed_memory_bytes"],
+        "compressed_gzip_bytes": summary["compressed_gzip_bytes"],
         "memory_before": dict(summary["memory_before"]),
         "memory_after": dict(summary["memory_after"]),
         "core_parts": dict(summary["core_parts"]),
@@ -99,6 +107,7 @@ def main() -> None:
     parser.add_argument("--summary_file", required=True)
     parser.add_argument("--log_dir")
     parser.add_argument("--json_indent", type=int, default=2)
+    parser.add_argument("--output_ext", default=".json")
     args = parser.parse_args()
 
     comm = MPI.COMM_WORLD
@@ -129,8 +138,10 @@ def main() -> None:
         "event_count": 0,
         "source_size_bytes": 0,
         "source_memory_bytes": 0,
+        "source_gzip_bytes": 0,
         "compressed_size_bytes": 0,
         "compressed_memory_bytes": 0,
+        "compressed_gzip_bytes": 0,
         "memory_before": defaultdict(int),
         "memory_after": defaultdict(int),
         "core_parts": defaultdict(int),
@@ -154,17 +165,20 @@ def main() -> None:
             source_file,
             emit_summary=False,
         )
-        output_path = os.path.join(args.output_dir, os.path.basename(source_file))
+        output_name = f"{Path(source_file).stem}{args.output_ext}"
+        output_path = os.path.join(args.output_dir, output_name)
         store_start = time.perf_counter()
         compressed_trace.write_file(output_path, json_indent=args.json_indent)
         store_seconds = time.perf_counter() - store_start
 
         local_summary["file_count"] += load_stats.file_count
         local_summary["event_count"] += load_stats.event_count
-        local_summary["source_size_bytes"] += load_stats.source_size_bytes
+        local_summary["source_size_bytes"] += serialized_trace_file_size(source_file, args.output_ext)
         local_summary["source_memory_bytes"] += load_stats.loaded_memory_bytes
+        local_summary["source_gzip_bytes"] += len(gzip.compress(source_trace_json_bytes(source_file)))
         local_summary["compressed_size_bytes"] += os.path.getsize(output_path)
         local_summary["compressed_memory_bytes"] += asizeof.asizeof(compressed_trace)
+        local_summary["compressed_gzip_bytes"] += len(gzip.compress(compressed_trace_bin_bytes(compressed_trace)))
         for key, value in compressor.last_memory_before.items():
             local_summary["memory_before"][key] += value
         for key, value in compressor.last_memory_after.items():
@@ -208,8 +222,10 @@ def main() -> None:
         "event_count": 0,
         "source_size_bytes": 0,
         "source_memory_bytes": 0,
+        "source_gzip_bytes": 0,
         "compressed_size_bytes": 0,
         "compressed_memory_bytes": 0,
+        "compressed_gzip_bytes": 0,
         "memory_before": {},
         "memory_after": {},
         "core_parts": {},
@@ -233,8 +249,10 @@ def main() -> None:
         merged["event_count"] += summary["event_count"]
         merged["source_size_bytes"] += summary["source_size_bytes"]
         merged["source_memory_bytes"] += summary["source_memory_bytes"]
+        merged["source_gzip_bytes"] += summary["source_gzip_bytes"]
         merged["compressed_size_bytes"] += summary["compressed_size_bytes"]
         merged["compressed_memory_bytes"] += summary["compressed_memory_bytes"]
+        merged["compressed_gzip_bytes"] += summary["compressed_gzip_bytes"]
         for key, value in summary["memory_before"].items():
             merged_before[key] += value
         for key, value in summary["memory_after"].items():

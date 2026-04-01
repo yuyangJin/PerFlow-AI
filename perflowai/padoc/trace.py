@@ -170,6 +170,52 @@ def _json_dump_kwargs(json_indent: Optional[int]) -> Dict[str, Any]:
         return {"indent": None, "separators": (",", ":")}
     return {"indent": json_indent}
 
+
+def serialized_trace_file_size(path: str, target_ext: str) -> int:
+    """Return the serialized size of a raw trace file under the target format."""
+    normalized_ext = target_ext.lower()
+    if normalized_ext == ".json":
+        return os.path.getsize(path)
+    if normalized_ext == ".bin":
+        payload = Trace._read_trace_payload(path)
+        return len(msgpack.packb(payload, use_bin_type=True))
+    raise ValueError(f"Unsupported target trace format: {target_ext}")
+
+
+def source_trace_json_bytes(path: str) -> bytes:
+    """Return one source trace serialized as compact JSON bytes."""
+    if path.endswith(".json"):
+        with open(path, "rb") as file_obj:
+            return file_obj.read()
+    payload = Trace._read_trace_payload(path)
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def compressed_trace_payload(compressed_trace: "CompressedTrace") -> Dict[str, Any]:
+    """Return the serialized payload dictionary for a compressed trace."""
+    payload: Dict[str, Any] = {
+        "metadata": compressed_trace.metadata,
+        "event_templates": [event.to_dict() for event in compressed_trace.event_templates],
+        "ranks": {},
+        "rank_start_timestamp": compressed_trace.start_timestamp,
+    }
+
+    for rank, processes in compressed_trace.ranks.items():
+        payload["ranks"][rank] = {}
+        for pid, tids in processes.items():
+            payload["ranks"][rank][pid] = {}
+            for tid, phases in tids.items():
+                payload["ranks"][rank][pid][tid] = {}
+                for ph, node in phases.items():
+                    payload["ranks"][rank][pid][tid][ph] = node.to_dict()
+
+    return payload
+
+
+def compressed_trace_bin_bytes(compressed_trace: "CompressedTrace") -> bytes:
+    """Return one compressed trace serialized as msgpack bytes."""
+    return msgpack.packb(compressed_trace_payload(compressed_trace), use_bin_type=True)
+
 class Trace(BaseTrace):
     """Concrete uncompressed trace type.
 

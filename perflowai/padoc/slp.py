@@ -113,24 +113,42 @@ class SegmentedLinearPredictorCompressor:
     def compress_same_args(cls, args: Dict[str, List[Any]]) -> None:
         """Compress arguments that are the same for all examples.
         """
+        for key, value in list(args.items()):
+            args[key] = cls._compress_arg_value(value)
 
-        for key, value in args.items():
-            if not isinstance(value, list):
-                continue
+    @classmethod
+    def _compress_arg_value(cls, value: Any) -> Any:
+        """Recursively compress nested args containers."""
+        if isinstance(value, dict):
+            for key, child in list(value.items()):
+                value[key] = cls._compress_arg_value(child)
+            return value
+
+        if isinstance(value, list):
             if len(value) == 0:
-                continue
-            if isinstance(value[0], (dict, list, np.ndarray)):
-                continue
+                return value
+
+            first = value[0]
+            if isinstance(first, (dict, list, np.ndarray)):
+                for index, child in enumerate(value):
+                    value[index] = cls._compress_arg_value(child)
+                return value
+
             if cls._all_same_args(value):
-                args[key] = [value[0]]
-            elif isinstance(value[0], int):
-                args[key] = cls.compress_values(value)
+                return [first]
+
+            if cls._all_numeric_scalars(value):
+                return cls.compress_values(value)
+
+            return value
+
+        return value
 
     @classmethod
     def compress_values(cls, values: List[Union[int, float]]) -> np.ndarray:
         """
         Compress numeric values with minimal dtype:
-        - If any float exists -> float32
+        - If any float exists -> float64 to preserve exact JSON round-trip
         - Else choose smallest int dtype based on min/max
         """
 
@@ -160,7 +178,7 @@ class SegmentedLinearPredictorCompressor:
 
         # case 1: 有 float
         if has_float:
-            return np.asarray(values, dtype=np.float32)
+            return np.asarray(values, dtype=np.float64)
 
         # case 2: 全是 int，根据范围选 dtype
         if min_v >= np.iinfo(np.int8).min and max_v <= np.iinfo(np.int8).max:
@@ -180,11 +198,18 @@ class SegmentedLinearPredictorCompressor:
         """Decompress arguments that are the same for all examples.
         """
 
+        if isinstance(args, np.ndarray):
+            if args.size == 0:
+                return None
+            return args[index].item() if hasattr(args[index], "item") else args[index]
+
         if isinstance(args, list):
             if len(args) == 0:
-                return None
+                return []
             if isinstance(args[0], (dict, list, np.ndarray)):
                 return [cls.decompress_same_args(v, index) for v in args]
+            if len(args) == 1:
+                return args[0]
             return args[index]
 
         if args is None:
@@ -403,6 +428,16 @@ class SegmentedLinearPredictorCompressor:
             if arg != args[0]:
                 return False
 
+        return True
+
+    @classmethod
+    def _all_numeric_scalars(cls, values: List[Any]) -> bool:
+        """Check whether a value list contains only numeric scalars."""
+        for value in values:
+            if isinstance(value, bool):
+                continue
+            if not isinstance(value, (int, float, np.integer, np.floating)):
+                return False
         return True
 
     @classmethod

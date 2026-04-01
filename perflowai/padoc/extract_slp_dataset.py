@@ -39,19 +39,30 @@ def _parse_name(name: str) -> tuple[str, List[int]]:
     return "".join(pattern_parts), nums
 
 
+def _append_arg(dst: Any, src: Any) -> Any:
+    """Append one raw arg value into the grouped args structure."""
+    if isinstance(src, dict):
+        grouped = {} if dst is None else dst
+        for key, value in src.items():
+            grouped[key] = _append_arg(grouped.get(key), value)
+        return grouped
+
+    if isinstance(src, list):
+        grouped = [] if dst is None else dst
+        if len(grouped) < len(src):
+            grouped.extend([None] * (len(src) - len(grouped)))
+        for index, value in enumerate(src):
+            grouped[index] = _append_arg(grouped[index], value)
+        return grouped
+
+    grouped = [] if dst is None else dst
+    grouped.append(src)
+    return grouped
+
+
 def _add_args(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
     for key, value in src.items():
-        if isinstance(value, dict):
-            if key not in dst:
-                dst[key] = {}
-            _add_args(dst[key], value)
-        elif isinstance(value, list):
-            if key not in dst:
-                dst[key] = [[] for _ in value]
-            for i, item in enumerate(value):
-                dst[key][i].append(item)
-        else:
-            dst.setdefault(key, []).append(value)
+        dst[key] = _append_arg(dst.get(key), value)
 
 
 def _new_group(event: Event, rank: str, pid: str, tid: str, ph: str) -> Dict[str, Any]:

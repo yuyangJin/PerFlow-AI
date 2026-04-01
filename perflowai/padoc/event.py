@@ -18,6 +18,57 @@ from .slp import SegmentedLinearPredictorCompressor as SLP
 from .utils import logger, to_json_safe
 from ._compat import asizeof
 
+
+def _append_grouped_arg(dst: Any, src: Any) -> Any:
+    """Append one raw arg value into the grouped args structure."""
+    if isinstance(src, dict):
+        grouped = {} if dst is None else dst
+        for key, value in src.items():
+            grouped[key] = _append_grouped_arg(grouped.get(key), value)
+        return grouped
+
+    if isinstance(src, list):
+        grouped = [] if dst is None else dst
+        if len(grouped) < len(src):
+            grouped.extend([None] * (len(src) - len(grouped)))
+        for index, value in enumerate(src):
+            grouped[index] = _append_grouped_arg(grouped[index], value)
+        return grouped
+
+    grouped = [] if dst is None else dst
+    grouped.append(src)
+    return grouped
+
+
+def _merge_grouped_args(dst: Any, src: Any) -> Any:
+    """Merge two grouped args structures."""
+    if src is None:
+        return dst
+
+    if isinstance(src, dict):
+        merged = {} if dst is None else dst
+        for key, value in src.items():
+            merged[key] = _merge_grouped_args(merged.get(key), value)
+        return merged
+
+    if isinstance(src, list):
+        if len(src) == 0:
+            return [] if dst is None else dst
+
+        if isinstance(src[0], (dict, list)):
+            merged = [] if dst is None else dst
+            if len(merged) < len(src):
+                merged.extend([None] * (len(src) - len(merged)))
+            for index, value in enumerate(src):
+                merged[index] = _merge_grouped_args(merged[index], value)
+            return merged
+
+        merged = [] if dst is None else dst
+        merged.extend(src)
+        return merged
+
+    return src
+
 def is_same_event(e1: Union[Event, MergeEvent], e2: Union[Event, MergeEvent], debug: bool = False) -> bool:
     """
     Compare two events for structural similarity.
@@ -222,19 +273,7 @@ class MergeEvent:
     
     def _add_single_args(self, dst: dict, src: dict):
         for k, v in src.items():
-            if isinstance(v, dict):
-                if k not in dst:
-                    dst[k] = {}
-                self._add_single_args(dst[k], v)
-            elif isinstance(v, list):
-                if k not in dst:
-                    dst[k] = [[] for _ in v]  # 每个元素都独立收集
-                for i, val in enumerate(v):
-                    dst[k][i].append(val)
-            else:
-                if k not in dst:
-                    dst[k] = []
-                dst[k].append(v)
+            dst[k] = _append_grouped_arg(dst.get(k), v)
 
     def _add_single_event(self, e: Event):
         pat, nums = self._parse_name(e.name)
@@ -274,11 +313,10 @@ class MergeEvent:
 
         if e.args is not None:
             if not self.args:
-                self.args = e.args.copy()
+                self.args = _merge_grouped_args(None, e.args)
                 return
 
-            for k in self.args.keys():
-                self.args[k].extend(e.args[k])
+            self.args = _merge_grouped_args(self.args, e.args)
 
 
     def add_event(self, event: Union[Event, MergeEvent]):
@@ -501,19 +539,7 @@ class MergeKernelEvent:
     
     def _add_single_args(self, dst: dict, src: dict):
         for k, v in src.items():
-            if isinstance(v, dict):
-                if k not in dst:
-                    dst[k] = {}
-                self._add_single_args(dst[k], v)
-            elif isinstance(v, list):
-                if k not in dst:
-                    dst[k] = [[] for _ in v]  # 每个元素都独立收集
-                for i, val in enumerate(v):
-                    dst[k][i].append(val)
-            else:
-                if k not in dst:
-                    dst[k] = []
-                dst[k].append(v)
+            dst[k] = _append_grouped_arg(dst.get(k), v)
 
     def _add_single_event(self, e: Event):
         pat, nums = self._parse_name(e.name)
@@ -549,11 +575,10 @@ class MergeKernelEvent:
 
         if e.args is not None:
             if not self.args:
-                self.args = e.args.copy()
+                self.args = _merge_grouped_args(None, e.args)
                 return
 
-            for k in self.args.keys():
-                self.args[k].extend(e.args[k])
+            self.args = _merge_grouped_args(self.args, e.args)
 
 
     def add_event(self, event: Union[Event, MergeEvent]):

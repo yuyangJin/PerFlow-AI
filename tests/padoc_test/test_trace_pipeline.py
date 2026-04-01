@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from perflowai.padoc import (
+    Event,
+    MergeEvent,
     TemplateCompressor,
     Trace,
     compare_trace_directories_with_report,
@@ -269,6 +272,87 @@ def test_decompress_linear_segment_supports_segment_blocks() -> None:
     assert SLP.decompress_linear_segment({"segments": segments}, 4) == 22
 
 
+def test_nested_args_roundtrip_and_recursive_compression() -> None:
+    """Nested args should compress recursively and round-trip correctly."""
+    events = [
+        Event({
+            "name": "foo",
+            "ts": 1,
+            "args": {
+                "grid": [128, 1, 1],
+                "meta": {
+                    "shape": [4, 8],
+                    "device": 6,
+                },
+                "nested": [
+                    {"dims": [2, 16], "kind": "a"},
+                    {"dims": [3, 32], "kind": "b"},
+                ],
+            },
+        }),
+        Event({
+            "name": "foo",
+            "ts": 2,
+            "args": {
+                "grid": [256, 1, 1],
+                "meta": {
+                    "shape": [4, 16],
+                    "device": 6,
+                },
+                "nested": [
+                    {"dims": [2, 24], "kind": "a"},
+                    {"dims": [5, 48], "kind": "b"},
+                ],
+            },
+        }),
+    ]
+
+    merged = MergeEvent(events)
+    merged.compress_values()
+
+    assert isinstance(merged.args["grid"][0], np.ndarray)
+    assert merged.args["grid"][1] == [1]
+    assert merged.args["meta"]["shape"][0] == [4]
+    assert isinstance(merged.args["nested"][0]["dims"][1], np.ndarray)
+
+    assert merged.get_event_by_index(0).args == events[0].args
+    assert merged.get_event_by_index(1).args == events[1].args
+
+
+def test_nested_float_args_roundtrip_exactly() -> None:
+    """Float args compressed through nested structures should round-trip exactly."""
+    events = [
+        Event({
+            "name": "foo",
+            "ts": 1,
+            "args": {
+                "metrics": {
+                    "blocks per SM": 0.888889,
+                    "warps per SM": 7.111111,
+                },
+                "grid": [12, 8, 1],
+            },
+        }),
+        Event({
+            "name": "foo",
+            "ts": 2,
+            "args": {
+                "metrics": {
+                    "blocks per SM": 13447.629883,
+                    "warps per SM": 53790.519531,
+                },
+                "grid": [1452344, 1, 1],
+            },
+        }),
+    ]
+
+    merged = MergeEvent(events)
+    merged.compress_values()
+
+    assert merged.get_event_by_index(0).args == events[0].args
+    assert merged.get_event_by_index(1).args == events[1].args
+
+
 def test_mpi_hierarchical_merge_demo(tmp_path: Path) -> None:
     """MPI demo should pass multi-rank hierarchical merge on the small trace subset."""
     pytest.importorskip("mpi4py")
@@ -296,6 +380,7 @@ def test_mpi_hierarchical_merge_demo(tmp_path: Path) -> None:
         "2",
         "--mpi_merge_fanin",
         "2",
+        "--run_merge",
     ]
     try:
         result = subprocess.run(

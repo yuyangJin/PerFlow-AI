@@ -362,5 +362,20 @@ def _group_len(group: dict[str, Any]) -> int:
             if nested:
                 return nested
         elif isinstance(value, list):
+            if not value:
+                continue
+            first = value[0]
+            if isinstance(first, dict):
+                nested = _group_len(first)
+                if nested:
+                    return nested
+                continue
+            if isinstance(first, list):
+                nested = _group_len({"_": first})
+                if nested:
+                    return nested
+                continue
+            return len(value)
+        elif hasattr(value, "shape"):
             return len(value)
     return 0

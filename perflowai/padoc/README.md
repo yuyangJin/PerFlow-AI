@@ -1,150 +1,225 @@
 # PADOC Overview
 
-`perflowai/padoc` is the core trace compression and analysis package in this repository.
-Its job is not only to shrink Torch Profiler traces, but to keep them analyzable after
-compression so the system can still run performance diagnostics on the compressed form.
+`perflowai/padoc` is the trace compression and analysis package in this repository.
+Its goal is not only to reduce Torch Profiler trace size, but to keep the compressed
+representation analyzable and reconstructable.
 
 ## Purpose
 
-PADOC focuses on three linked goals:
+PADOC focuses on three linked tasks:
 
-- parse raw profiler traces into an internal structured representation
-- compress repeated event patterns and repeated subtrees in execution traces
-- run performance analysis directly on compressed traces
+- parse raw profiler traces into a structured internal representation
+- compress repeated event patterns and repeated call-tree structure
+- analyze compressed traces without expanding them back to raw JSON first
 
-In practice, this makes large training or inference traces cheaper to store and load,
-while preserving the ability to compute metrics such as temporal breakdown, communication
-vs. computation overlap, and GPU kernel breakdown.
+In practice, PADOC is meant for large training or inference traces where storage,
+load time, and memory pressure all matter.
 
 ## Core Modules
 
-### 1. Data model
+### Data model
 
 - `event.py`
-  - defines `Event` for raw events
-  - defines `MergeEvent` for merged/template events used during compression
+  - raw `Event`
+  - merged/template-side `MergeEvent`
 - `node.py`
-  - defines tree/node representations used by raw and compressed traces
-  - includes CPU/GPU-side node structures used during traversal and reconstruction
+  - trace tree nodes for raw and compressed traces
+  - CPU/GPU nodes and template-reference nodes
 - `trace.py`
-  - defines `Trace` for raw traces
-  - defines `CompressedTrace` for compressed traces
-  - organizes data as `rank -> pid -> tid -> ph`
+  - `Trace` for raw traces
+  - `CompressedTrace` for compressed traces
+  - JSON/msgpack read/write helpers
 
-### 2. Compression
+### Compression
 
 - `compressor.py`
-  - defines the compressor interface
   - `TemplateCompressor` is the main implementation
-  - builds trace trees, identifies repeated templates, and rewrites repeated structures
-    into shared template references
+  - supports:
+    - single-file compression
+    - directory compression with one compressed file per source file
+    - optional merge of independently compressed files
+    - rank-by-rank decompression to avoid building one large raw trace in memory
 - `slp.py`
-  - provides value-level compression helpers
-  - used for compressing repeated numeric/name patterns inside merged events
+  - value-level compression helpers for merged event fields
 
-### 3. Analysis
+### Analysis
 
 - `analysis.py`
-  - exposes `TraceAnalysis` as the user-facing analysis entry
+  - `TraceAnalysis` entrypoint
 - `hta/`
-  - contains the actual analysis logic aligned with HTA-style metrics
-  - currently includes temporal breakdown, communication analysis, and kernel breakdown
+  - temporal breakdown
+  - communication/computation overlap
+  - GPU kernel breakdown
 - `visitor.py`
-  - provides iterators that traverse merged/compressed stream events in timestamp order
+  - ordered traversal over compressed events
 
-## Main Call Chain
+### MPI helpers
 
-The high-level path from input trace to compressed analysis is:
+- `compress_mpi_worker.py`
+  - MPI worker for independent per-file compression
+- `merge_mpi_worker.py`
+  - MPI worker for hierarchical merge reduction
+- `verify_mpi_worker.py`
+  - MPI worker for parallel verify/decompression checks
+
+## Main Objects
+
+Use this as the short mental model:
+
+1. `Trace`
+   - raw trace loaded from profiler output
+2. `TemplateCompressor`
+   - transforms repeated structures into templates
+3. `CompressedTrace`
+   - compact trace representation with shared templates
+4. `TraceAnalysis`
+   - runs analysis directly on `CompressedTrace`
+
+## Compression Modes
+
+PADOC currently uses these execution modes.
+
+### Single-rank
+
+- load one file
+- compress one rank trace
+- write one compressed file
+- optionally decompress and verify against the source file
+
+### Multi-rank independent compression
+
+This is the default directory mode.
+
+- each source file is compressed independently
+- output is one compressed file per source file
+- this matches the real deployment assumption that each process owns its own profile
+- it avoids forcing all ranks into one global compressed object up front
+
+### Optional merged compression
+
+Merge is now optional and disabled by default in the demo.
+
+- first compress each source file independently
+- then optionally merge the compressed outputs
+- serial mode merges sequentially
+- MPI mode uses hierarchical reduction:
+  - round 1 merges many source files into `P` intermediate files
+  - later rounds merge intermediate files until one file remains
+
+This mode is useful for experimentation, but it is not required for the normal
+independent-compression workflow.
+
+## Memory Behavior
+
+Recent changes were made specifically to reduce peak memory:
+
+- directory loading is sequential, not threaded
+- independent multi-rank compression processes one file at a time
+- merged verify can write one decompressed rank file at a time instead of first
+  reconstructing one large raw `Trace`
+- `--skip_verify` avoids decompression entirely
+
+`Trace` is mainly a comparison and reconstruction convenience type. The current
+pipeline tries to avoid building one giant `Trace` for whole-directory workflows.
+
+## Current Call Chains
+
+### Single-rank
 
 ```mermaid
 flowchart TD
-    A["Raw Torch Profiler Trace<br/>JSON / BIN"] --> B["Trace.from_file / Trace.from_dir"]
-    B --> C["Trace<br/>rank -> pid -> tid -> ph"]
-    C --> D["TemplateCompressor.intra_compress / inter_compress"]
-
-    D --> D1["Build CPU/GPU call trees"]
-    D1 --> D2["Detect repeated events and repeated subtrees"]
-    D2 --> D3["Create event_templates and compressed node references"]
-    D3 --> E["CompressedTrace"]
-
-    E --> F["CompressedTrace.write_file"]
-    E --> G["TraceAnalysis"]
-
-    G --> G1["get_temporal_breakdown"]
-    G --> G2["get_comm_comp_overlap"]
-    G --> G3["get_gpu_kernel_breakdown"]
-
-    E --> H["TemplateCompressor.intra_decompress / inter_decompress"]
-    H --> I["Reconstructed Trace"]
-    I --> J["Write original-format trace and verify correctness"]
+    A["Raw trace file"] --> B["Trace.load_file_data"]
+    B --> C["TemplateCompressor.compress_file_with_timing"]
+    C --> D["TemplateCompressor.intra_compress"]
+    D --> E["CompressedTrace.write_file"]
+    E --> F["Optional verify"]
+    F --> G["CompressedTrace.from_file"]
+    G --> H["TemplateCompressor.intra_decompress"]
+    H --> I["Trace.write_file(origin=True)"]
 ```
 
-## End-to-End Flow
+### Multi-rank independent compression
 
-### Raw trace ingest
+```mermaid
+flowchart TD
+    A["Trace directory"] --> B["Iterate files one by one"]
+    B --> C["Compress each file independently"]
+    C --> D["Write one compressed file per source file"]
+    D --> E["Optional verify per file or via MPI"]
+    D --> F["Aggregate size, memory, node, and timing stats"]
+```
 
-`Trace.from_file()` or `Trace.from_dir()` reads profiler output and converts each event
-into an `Event`. The result is a hierarchical trace indexed by rank, process, thread,
-and phase.
+### Optional hierarchical MPI merge
 
-### Template-based compression
+```mermaid
+flowchart TD
+    A["Independent compressed files"] --> B["MPI merge round 1"]
+    B --> C["Intermediate merged files"]
+    C --> D["MPI merge round 2..N"]
+    D --> E["Final merged compressed file"]
+    E --> F["Optional MPI verify from merged file"]
+```
 
-`TemplateCompressor` scans the trace, builds tree structure from event sequences,
-matches structurally similar events/subtrees, and stores repeated patterns in shared
-templates. The compressed result is a `CompressedTrace` plus a template/event table.
+## Demo Entrypoint
 
-### Analysis on compressed trace
+The main demo is:
 
-`TraceAnalysis` accepts a `CompressedTrace` and forwards analysis requests to the
-implementations under `hta/`. This is the key design point: compression is meant to
-preserve enough structure for analysis to operate without full expansion back to raw JSON.
-
-### Reconstruction
-
-For validation or export, the compressor can decompress a `CompressedTrace` back into a
-regular `Trace`, which can then be written in original event format and compared with the
-input trace.
-
-## Example Entrypoints
-
-The most useful examples are under `examples/compressed_analyze/`.
-
-### `compress_demo.py`
-
-Path:
 - `examples/compressed_analyze/compress_demo.py`
 
-Demonstrates:
+It currently supports:
 
-- loading a raw trace
-- compressing it with `TemplateCompressor`
-- writing the compressed form
-- decompressing it
-- writing the reconstructed trace
-- comparing reconstructed output with the original
+- `single-rank`
+- `multi-rank`
+- optional `multi-rank+merge`
+- serial or MPI execution for the multi-rank stages
+- timing breakdown by stage
+- compressed memory distribution
+- node statistics
+- optional verify
 
-This script is the best entrypoint for understanding storage reduction and correctness.
+Important demo arguments:
 
-### `analyze_demo.py`
+- `--multi_rank_input_dir`
+  - run the multi-file workflow
+- `--multi_rank_executor {serial,mpi}`
+  - choose serial or MPI for independent compression and verify
+- `--mpi_processes`
+  - number of MPI processes
+- `--mpi_merge_fanin`
+  - reduction fan-in for hierarchical merge rounds
+- `--run_merge`
+  - opt in to the merged-compression experiment
+- `--skip_verify`
+  - skip decompression and correctness checks
+- `--json_indent`
+  - JSON output formatting
+  - `> 0`: readable JSON
+  - `<= 0`: compact JSON using `separators=(",", ":")`
 
-Path:
-- `examples/compressed_analyze/analyze_demo.py`
+## Verify Behavior
 
-Demonstrates:
+PADOC includes file-level and directory-level verification helpers.
 
-- loading a raw trace or pre-compressed trace
-- compressing if needed
-- running `TraceAnalysis` on the compressed result
-- comparing PADOC analysis outputs against HTA outputs
+- single-file verify compares reconstructed trace events to the source file
+- multi-file verify maps files by rank, not only by file name
+- MPI verify can:
+  - verify independently compressed parts
+  - verify a merged compressed file by rank
 
-This script is the best entrypoint for understanding why PADOC exists beyond file-size
-reduction: the compressed trace is still intended to support standard performance analysis.
+Failure messages are intended to explain the first concrete mismatch, for example:
 
-## Minimal Mental Model
+- file list mismatch
+- event count mismatch
+- first mismatch at a specific event index
 
-If you want one short mental model for this package:
+## Notes on Merge
 
-1. `Trace` is the raw structured trace.
-2. `TemplateCompressor` turns repeated execution patterns into reusable templates.
-3. `CompressedTrace` is the compact but still analyzable representation.
-4. `TraceAnalysis` runs performance analysis on that compressed representation.
+The merged mode is implemented for experimentation and may not always provide the
+best compression ratio. Its main value right now is:
+
+- exploring cross-file template sharing
+- measuring merge cost separately from independent compression
+- testing hierarchical MPI reduction
+
+If the goal is stable low-memory compression for real runs, the independent
+multi-rank mode is the primary path.

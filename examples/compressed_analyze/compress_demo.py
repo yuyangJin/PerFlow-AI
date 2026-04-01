@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import math
 import os
@@ -24,7 +25,8 @@ from perflowai.padoc import (
 from perflowai.padoc._compat import asizeof
 from perflowai.padoc.event import memory_breakdown_templates
 from perflowai.padoc.node import collect_trace_node_stats, count_trace_nodes, print_node_stats
-from perflowai.padoc.trace import TraceLoadStats, compressed_trace_core_parts
+from perflowai.padoc.trace import TraceLoadStats, compressed_trace_core_parts, serialized_trace_file_size
+from perflowai.padoc.trace import compressed_trace_bin_bytes, source_trace_json_bytes
 
 
 @dataclass(frozen=True)
@@ -37,8 +39,10 @@ class CompressionRunResult:
     event_count: int
     source_size_bytes: int
     source_memory_bytes: int
+    source_gzip_bytes: int
     compressed_size_bytes: int
     compressed_memory_bytes: int
+    compressed_gzip_bytes: int
     verify_passed: bool
     verify_message: str
     memory_before: Dict[str, int]
@@ -95,6 +99,31 @@ def shorten_source_path(path: str) -> str:
 def directory_size(paths: Iterable[str]) -> int:
     """Return total size of a file collection."""
     return sum(os.path.getsize(path) for path in paths)
+
+
+def target_file_ext(path: str) -> str:
+    """Return the normalized output extension."""
+    ext = Path(path).suffix.lower()
+    if ext in {".json", ".bin"}:
+        return ext
+    return ".json"
+
+
+def source_size_for_output(path: str, output_path: str) -> int:
+    """Return the baseline source size under the output file format."""
+    return serialized_trace_file_size(path, target_file_ext(output_path))
+
+
+def source_directory_size_for_output(paths: Iterable[str], output_path: str) -> int:
+    """Return the baseline source directory size under the output file format."""
+    output_ext = target_file_ext(output_path)
+    return sum(serialized_trace_file_size(path, output_ext) for path in paths)
+
+
+def compressed_output_path(output_dir: str, source_file: str, output_file: str) -> str:
+    """Return the per-file compressed output path following the requested format."""
+    ext = target_file_ext(output_file)
+    return os.path.join(output_dir, f"{Path(source_file).stem}{ext}")
 
 
 def input_files(input_dir: str) -> List[str]:
@@ -176,6 +205,7 @@ def print_trace_memory_distribution_from_parts(
 def run_mpi_multi_rank_compression(
     input_dir: str,
     compressed_dir: str,
+    output_file: str,
     mpi_processes: int,
     mpi_log_dir: str | None,
     json_indent: int,
@@ -195,6 +225,8 @@ def run_mpi_multi_rank_compression(
         compressed_dir,
         "--summary_file",
         summary_path,
+        "--output_ext",
+        target_file_ext(output_file),
     ]
     if mpi_log_dir:
         command.extend(["--log_dir", mpi_log_dir])
@@ -398,10 +430,13 @@ def print_summary_table(results: List[CompressionRunResult]) -> None:
         "Source",
         "Source File",
         "Source Memory",
+        "Source+Gzip",
         "Compressed File",
         "Compressed Memory",
+        "PADOC Bin+Gzip",
         "File Ratio",
         "Memory Ratio",
+        "Gzip Ratio",
         "Load",
         "Compress",
         "Store",
@@ -419,10 +454,13 @@ def print_summary_table(results: List[CompressionRunResult]) -> None:
             shorten_source_path(result.source),
             format_size(result.source_size_bytes),
             format_size(result.source_memory_bytes),
+            format_size(result.source_gzip_bytes),
             format_size(result.compressed_size_bytes),
             format_size(result.compressed_memory_bytes),
+            format_size(result.compressed_gzip_bytes),
             compression_ratio(result.compressed_size_bytes, result.source_size_bytes),
             compression_ratio(result.compressed_memory_bytes, result.source_memory_bytes),
+            compression_ratio(result.compressed_gzip_bytes, result.source_gzip_bytes),
             format_duration(result.load_seconds),
             format_duration(result.compress_seconds),
             format_duration(result.store_seconds),
@@ -487,10 +525,12 @@ def collect_single_rank_result(
         source=input_file,
         file_count=load_stats.file_count,
         event_count=load_stats.event_count,
-        source_size_bytes=os.path.getsize(input_file),
+        source_size_bytes=source_size_for_output(input_file, output_file),
         source_memory_bytes=load_stats.loaded_memory_bytes,
+        source_gzip_bytes=len(gzip.compress(source_trace_json_bytes(input_file))),
         compressed_size_bytes=os.path.getsize(output_file),
         compressed_memory_bytes=asizeof.asizeof(compressed_trace),
+        compressed_gzip_bytes=len(gzip.compress(compressed_trace_bin_bytes(compressed_trace))),
         verify_passed=verify_passed,
         verify_message=verify_message,
         memory_before=compressor.last_memory_before,
@@ -529,6 +569,8 @@ def collect_multi_rank_result(
     total_load_stats = TraceLoadStats()
     total_compressed_size = 0
     total_compressed_memory = 0
+    total_source_gzip_size = 0
+    total_compressed_gzip_size = 0
     load_seconds = 0.0
     compress_seconds = 0.0
     store_seconds = 0.0
@@ -546,6 +588,7 @@ def collect_multi_rank_result(
         mpi_summary = run_mpi_multi_rank_compression(
             input_dir,
             compressed_dir,
+            output_file,
             mpi_processes,
             mpi_log_dir,
             json_indent,
@@ -554,8 +597,10 @@ def collect_multi_rank_result(
         total_load_stats.event_count = int(mpi_summary["event_count"])
         total_load_stats.source_size_bytes = int(mpi_summary["source_size_bytes"])
         total_load_stats.loaded_memory_bytes = int(mpi_summary["source_memory_bytes"])
+        total_source_gzip_size = int(mpi_summary["source_gzip_bytes"])
         total_compressed_size = int(mpi_summary["compressed_size_bytes"])
         total_compressed_memory = int(mpi_summary["compressed_memory_bytes"])
+        total_compressed_gzip_size = int(mpi_summary["compressed_gzip_bytes"])
         rank0_timings = mpi_summary["rank0_timings"]
         load_seconds = float(rank0_timings.get("load_seconds", 0.0))
         compress_seconds = float(rank0_timings.get("compress_seconds", 0.0))
@@ -591,7 +636,7 @@ def collect_multi_rank_result(
             )
     else:
         for index, source_file in enumerate(files, start=1):
-            output_path = os.path.join(compressed_dir, os.path.basename(source_file))
+            output_path = compressed_output_path(compressed_dir, source_file, output_file)
             compressor = TemplateCompressor()
             compressed_trace, load_stats, timings = compressor.compress_file_with_timing(
                 source_file,
@@ -605,8 +650,10 @@ def collect_multi_rank_result(
             total_load_stats.event_count += load_stats.event_count
             total_load_stats.source_size_bytes += load_stats.source_size_bytes
             total_load_stats.loaded_memory_bytes += load_stats.loaded_memory_bytes
+            total_source_gzip_size += len(gzip.compress(source_trace_json_bytes(source_file)))
             total_compressed_size += os.path.getsize(output_path)
             total_compressed_memory += asizeof.asizeof(compressed_trace)
+            total_compressed_gzip_size += len(gzip.compress(compressed_trace_bin_bytes(compressed_trace)))
             load_seconds += timings["load_seconds"]
             compress_seconds += timings["compress_seconds"]
             for key, value in compressor.last_memory_before.items():
@@ -680,10 +727,12 @@ def collect_multi_rank_result(
             source=input_dir,
             file_count=total_load_stats.file_count,
             event_count=total_load_stats.event_count,
-            source_size_bytes=directory_size(files),
+            source_size_bytes=source_directory_size_for_output(files, output_file),
             source_memory_bytes=total_load_stats.loaded_memory_bytes,
+            source_gzip_bytes=total_source_gzip_size,
             compressed_size_bytes=total_compressed_size,
             compressed_memory_bytes=total_compressed_memory,
+            compressed_gzip_bytes=total_compressed_gzip_size,
             verify_passed=verify_passed,
             verify_message=verify_message,
             memory_before=aggregated_before,
@@ -777,10 +826,15 @@ def collect_multi_rank_merge_result(
         source=input_dir,
         file_count=len(input_files(input_dir)),
         event_count=0,
-        source_size_bytes=directory_size(input_files(input_dir)),
+        source_size_bytes=source_directory_size_for_output(input_files(input_dir), output_file),
         source_memory_bytes=baseline_memory_bytes,
+        source_gzip_bytes=sum(
+            len(gzip.compress(source_trace_json_bytes(path)))
+            for path in input_files(input_dir)
+        ),
         compressed_size_bytes=os.path.getsize(output_file),
         compressed_memory_bytes=asizeof.asizeof(compressed_trace),
+        compressed_gzip_bytes=len(gzip.compress(compressed_trace_bin_bytes(compressed_trace))),
         verify_passed=verify_passed,
         verify_message=verify_message,
         memory_before=compressor.last_memory_before,
