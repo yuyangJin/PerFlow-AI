@@ -24,7 +24,6 @@ import msgpack
 
 
 TRACE_PATH = Path("tests/example_trace/out-1024.json")
-TRACE_PATH = Path("/Users/fighting/Work/AI/Trace/profiler/profiler_0.json")
 ARTIFACTS_DIR = Path("tests/padoc_test/artifacts")
 METRICS_PATH = ARTIFACTS_DIR / "slp_metrics.json"
 METRICS_TABLE_MD_PATH = ARTIFACTS_DIR / "slp_metrics_table.md"

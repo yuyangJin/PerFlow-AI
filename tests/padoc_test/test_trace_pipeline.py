@@ -108,6 +108,10 @@ def test_trace_directory_loading_and_streaming_compression(tmp_path: Path) -> No
     assert passed, message
 
 
+@pytest.mark.skipif(
+    not MERGE_SMALL_DIR.exists(),
+    reason="Skipped because tests/example_trace/merge_small/ is not bundled with the repo.",
+)
 def test_merge_small_real_subset_roundtrip(tmp_path: Path) -> None:
     """Merge should round-trip on a small subset extracted from the real failing traces."""
     compressed_dir = tmp_path / "compressed_parts"
