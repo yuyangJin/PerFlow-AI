@@ -30,6 +30,18 @@ from .runner import (
     run_analysis_matrix,
     run_compression_matrix,
 )
+from .parallel import (
+    ParallelRunResult,
+    render_parallel_markdown,
+    run_parallel_compression,
+)
+from .scalability import (
+    ScalabilityPoint,
+    render_scalability_markdown,
+    run_gpu_sweep,
+    run_iteration_sweep,
+    run_layer_sweep,
+)
 from .tasks import AnalysisTask, builtin_tasks, get_task
 
 __all__ = [
@@ -47,4 +59,12 @@ __all__ = [
     "AnalysisTask",
     "builtin_tasks",
     "get_task",
+    "ScalabilityPoint",
+    "render_scalability_markdown",
+    "run_gpu_sweep",
+    "run_layer_sweep",
+    "run_iteration_sweep",
+    "ParallelRunResult",
+    "render_parallel_markdown",
+    "run_parallel_compression",
 ]

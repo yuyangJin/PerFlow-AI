@@ -10,6 +10,10 @@ adding a new baseline / new analysis task / new dataset is one file each.
 
 ```
 perflowai/padoc/
+  config.py                 # CompressorConfig (ablation switches)
+  storage_breakdown.py      # template / structure / soft-link byte profile
+  tree_stats.py             # depth / branching / SameCPUNode multipliers
+  synthetic.py              # parameterised synthetic trace generator
   baselines/                # paper-level compressors
     base.py                 #   - BaselineCompressor abstract class
     raw.py                  #   - RawJsonCompressor / RawMsgpackCompressor
@@ -20,8 +24,10 @@ perflowai/padoc/
   bench/                    # the harness itself
     datasets.py             #   - TraceDataset descriptors + manifest loader
     metrics.py              #   - CompressionRecord / AnalysisRecord
-    tasks.py                #   - AnalysisTask wrappers
+    tasks.py                #   - AnalysisTask wrappers (incl. layer balance + parallel groups)
     runner.py               #   - run_compression_matrix / run_analysis_matrix
+    scalability.py          #   - run_gpu_sweep / run_layer_sweep / run_iteration_sweep
+    parallel.py             #   - run_parallel_compression (thread / process scaling)
     report.py               #   - markdown / csv / json renderers
     __main__.py             #   - python -m perflowai.padoc.bench CLI
 ```
@@ -122,9 +128,61 @@ override ``has_in_situ_for`` and ``run_in_situ``.  See
 
 `BaselineCompressor` subclasses accept arbitrary ``__init__`` kwargs and
 the runner forwards them via the ``--compressor-options`` mechanism (or
-direct construction).  PADOC-side ablation switches should live as
+direct construction).  PADOC-side ablation switches live as
 ``CompressorConfig`` flags on :class:`TemplateCompressor` so they can be
 toggled per run; the adapter ``PADOCCompressor`` simply forwards them.
+
+```python
+from perflowai.padoc import PADOCCompressor, all_ablation_presets
+
+for label, config in all_ablation_presets().items():
+    artifact = PADOCCompressor(config=config).compress_trace(trace)
+    print(label, artifact.size_bytes)
+```
+
+The presets shipped today are: ``default``, ``no_structural``,
+``no_anchor``, ``no_slp``, ``no_args_dedup``, ``no_kernel_links``,
+``no_name_pattern``, ``minimal`` (everything off).
+
+## Storage profile + tree statistics (paper "compression info" section)
+
+```python
+from perflowai.padoc import (
+    TemplateCompressor, measure_storage, measure_tree_statistics,
+)
+
+ct = TemplateCompressor().intra_compress(trace, emit_summary=False)
+storage = measure_storage(ct)
+print(storage.render_markdown())  # bytes per component + per template field
+
+shape = measure_tree_statistics(ct)
+print(shape.as_dict())  # depth / branching / SameCPUNode multipliers / unique shapes
+```
+
+## Scalability sweeps
+
+For results that vary GPU / layer / iteration count, the harness ships
+a deterministic synthetic trace generator + sweep runner that does not
+require any cluster data.
+
+```bash
+# Bytes-vs-GPUs table; every cell is one full compression matrix.
+python -m perflowai.padoc.bench scalability \
+    --axis gpus --values 4 8 16 32 \
+    --out-md /tmp/sweep_gpus.md
+
+python -m perflowai.padoc.bench scalability --axis layers      --values 4 8 16 32 64
+python -m perflowai.padoc.bench scalability --axis iterations  --values 1 2 4 8 16
+```
+
+For thread / process scalability, point it at a multi-rank trace dir:
+
+```bash
+python -m perflowai.padoc.bench parallel \
+    --trace-dir /scratch/ai-trace/dense_70b/ \
+    --workers 1 2 4 8 16 \
+    --backend process --out-md /tmp/parallel.md
+```
 
 ## Verification semantics
 

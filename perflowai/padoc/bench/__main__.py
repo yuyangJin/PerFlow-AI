@@ -32,7 +32,14 @@ from .report import (
     write_records_csv,
     write_records_json,
 )
+from .parallel import render_parallel_markdown, run_parallel_compression
 from .runner import run_analysis_matrix, run_compression_matrix
+from .scalability import (
+    render_scalability_markdown,
+    run_gpu_sweep,
+    run_iteration_sweep,
+    run_layer_sweep,
+)
 from .tasks import builtin_tasks
 
 
@@ -249,7 +256,99 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_list.set_defaults(handler=cmd_list)
 
+    p_scale = sub.add_parser(
+        "scalability",
+        help="Run synthetic-trace scalability sweeps (gpus / layers / iters).",
+    )
+    p_scale.add_argument(
+        "--axis",
+        choices=["gpus", "layers", "iterations"],
+        default="gpus",
+        help="Which dimension to sweep.",
+    )
+    p_scale.add_argument(
+        "--values",
+        nargs="+",
+        type=int,
+        required=True,
+        help="Concrete values for the swept axis (e.g. --values 4 8 16 32).",
+    )
+    p_scale.add_argument(
+        "--compressors",
+        nargs="*",
+        default=None,
+        help="Compressors to include (defaults to all baselines + padoc).",
+    )
+    p_scale.add_argument("--out-md", default=None, help="Write the sweep table as markdown.")
+    p_scale.set_defaults(handler=cmd_scalability)
+
+    p_par = sub.add_parser(
+        "parallel",
+        help="Sweep worker count when compressing a multi-rank trace dir.",
+    )
+    p_par.add_argument("--trace-dir", required=True)
+    p_par.add_argument("--compressor", default="padoc")
+    p_par.add_argument(
+        "--workers",
+        nargs="+",
+        type=int,
+        default=[1, 2, 4, 8],
+    )
+    p_par.add_argument(
+        "--backend",
+        choices=["process", "thread"],
+        default="process",
+    )
+    p_par.add_argument("--out-md", default=None)
+    p_par.set_defaults(handler=cmd_parallel)
+
     return parser
+
+
+def cmd_scalability(args: argparse.Namespace) -> int:
+    compressors = (
+        args.compressors
+        if args.compressors
+        else ["raw_msgpack", "gzip_msgpack", "tracezip", "scalatrace", "padoc"]
+    )
+    sweep_fn = {
+        "gpus": run_gpu_sweep,
+        "layers": run_layer_sweep,
+        "iterations": run_iteration_sweep,
+    }[args.axis]
+    sweep_kw = {
+        "gpus": "gpu_counts",
+        "layers": "layer_counts",
+        "iterations": "iteration_counts",
+    }[args.axis]
+    points = sweep_fn(**{sweep_kw: args.values}, compressors=tuple(compressors))
+    md = render_scalability_markdown(points)
+    print(md)
+    if args.out_md:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out_md)) or ".", exist_ok=True)
+        with open(args.out_md, "w", encoding="utf-8") as f:
+            f.write(f"# Scalability sweep ({args.axis})\n\n")
+            f.write(md)
+        print(f"wrote {args.out_md}")
+    return 0
+
+
+def cmd_parallel(args: argparse.Namespace) -> int:
+    rows = run_parallel_compression(
+        args.trace_dir,
+        compressor_name=args.compressor,
+        workers_grid=args.workers,
+        backend=args.backend,
+    )
+    md = render_parallel_markdown(rows)
+    print(md)
+    if args.out_md:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out_md)) or ".", exist_ok=True)
+        with open(args.out_md, "w", encoding="utf-8") as f:
+            f.write(f"# Parallel compression ({args.backend})\n\n")
+            f.write(md)
+        print(f"wrote {args.out_md}")
+    return 0
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

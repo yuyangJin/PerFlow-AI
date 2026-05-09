@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover
         return gzip.decompress(data)
 
 from ..compressor import TemplateCompressor
+from ..config import CompressorConfig, default_config
 from ..trace import (
     CompressedTrace,
     Trace,
@@ -46,9 +47,11 @@ class PADOCCompressor(BaselineCompressor):
         self,
         merge_ranks: bool = False,
         post_zstd: bool = True,
+        config: CompressorConfig | None = None,
     ) -> None:
         self.merge_ranks = merge_ranks
         self.post_zstd = post_zstd
+        self.config = config or default_config()
         # Cache of recently produced CompressedTrace objects so the harness
         # can run in-situ analyses without repeating decompression.
         self._last_compressed: CompressedTrace | None = None
@@ -58,7 +61,7 @@ class PADOCCompressor(BaselineCompressor):
     # ------------------------------------------------------------------
 
     def compress_trace(self, trace: Trace) -> CompressArtifact:
-        compressor = TemplateCompressor()
+        compressor = TemplateCompressor(config=self.config)
         start = time.perf_counter()
         if self.merge_ranks:
             compressed_trace = compressor.inter_compress(trace, merge_ranks=True)
@@ -79,6 +82,7 @@ class PADOCCompressor(BaselineCompressor):
             "rank_count": len(compressed_trace.ranks),
             "post_zstd": self.post_zstd,
             "merge_ranks": self.merge_ranks,
+            "config": self.config.as_dict(),
         }
         return CompressArtifact(
             blob=blob,

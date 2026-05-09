@@ -52,8 +52,10 @@ class TemplateCompressor(Compressor):
     with references to shared ``TemplateNode`` structures.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional["CompressorConfig"] = None):
         super().__init__()
+        from .config import CompressorConfig as _CompressorConfig
+        self.config: "CompressorConfig" = config or _CompressorConfig()
         self.event_templates: List[MergeEvent] = []
         self.name2indexes: Dict[str, List[int]] = defaultdict(list)
         self.gpu_events: Dict[int, KernelEvent] = {}
@@ -189,8 +191,7 @@ class TemplateCompressor(Compressor):
 
         before = memory_breakdown_templates(self.event_templates)
 
-        for m in self.event_templates:
-            m.compress_values()
+        self._apply_template_value_compression()
 
         after = memory_breakdown_templates(self.event_templates)
         self.last_memory_before = before
@@ -209,10 +210,44 @@ class TemplateCompressor(Compressor):
 
         return CompressedTrace(self.event_templates, ranks, trace.get_metadata(), trace.get_start_time())
 
+    def _apply_template_value_compression(self) -> None:
+        """Apply :meth:`MergeEvent.compress_values` honouring ablation flags.
+
+        Notes:
+
+        * The name "compression" step (transposing per-event name nums
+          into per-position columns) is *required* for the decompression
+          path to work, so we always run it -- ``enable_slp=False`` only
+          disables the SLP transform on ``ts``/``dur``/``id``.
+        * ``enable_args_dedup=False`` keeps the raw per-instance args
+          structure; we just don't call :func:`compress_same_args`.
+        """
+        from .slp import SegmentedLinearPredictorCompressor as _SLP
+
+        for merged_event in self.event_templates:
+            self._compress_one_template(merged_event, _SLP)
+
+    def _compress_one_template(self, merged_event: MergeEvent, slp) -> None:
+        # Names: always transpose; SLP toggle does not alter this step.
+        merged_event.name_nums, merged_event.name_pattern = slp.compress_names(
+            merged_event.name_nums, merged_event.name_pattern
+        )
+
+        if merged_event.args is not None and self.config.enable_args_dedup:
+            slp.compress_same_args(merged_event.args)
+
+        if not self.config.enable_slp:
+            return
+
+        merged_event.ts = slp.segment_linear_compress(merged_event.ts)
+        if len(merged_event.dur) > 0:
+            merged_event.dur = slp.segment_linear_compress(merged_event.dur)
+        if hasattr(merged_event, "id") and len(merged_event.id) > 0:
+            merged_event.id = slp.compress_ids(merged_event.id)
+
     def _finalize_template_values(self, emit_summary: bool = True) -> None:
         before = memory_breakdown_templates(self.event_templates)
-        for merged_event in self.event_templates:
-            merged_event.compress_values()
+        self._apply_template_value_compression()
         after = memory_breakdown_templates(self.event_templates)
         self.last_memory_before = before
         self.last_memory_after = after
@@ -595,6 +630,8 @@ class TemplateCompressor(Compressor):
         )
 
     def _normalize_name(self, name: str) -> str:
+        if not self.config.enable_name_pattern:
+            return name
         return re.sub(r"\d+", "0", name)
 
     def _find_event_template(self, e: Event) -> int | None:
@@ -741,7 +778,11 @@ class TemplateCompressor(Compressor):
             new_ref_node = CPUNode(cpu_template_index, cpu_instance_index)
 
             e_args = e.args
-            if e_args is not None and "correlation" in e_args:
+            if (
+                self.config.enable_kernel_links
+                and e_args is not None
+                and "correlation" in e_args
+            ):
                 corr = e_args["correlation"]
                 if corr in self.gpu_events:
                     self.gpu_visited.add(corr)
@@ -806,6 +847,14 @@ class TemplateCompressor(Compressor):
         if len(node.get_children()) == 0:
             return node
 
+        if not self.config.enable_structural:
+            # Ablation: skip SameCPUNode formation; recurse only.
+            new_children = []
+            for child in node.get_children():
+                new_children.append(self._compress_node_new(child))
+            node.children = new_children
+            return node
+
         groups, unused = self._group_similar_nodes(node.get_children())
 
         temps = []
@@ -859,6 +908,13 @@ class TemplateCompressor(Compressor):
 
         if any(size == 0 for size in child_sizes):
             # 不做 LCS，全部 children 进 slot
+            tnode.slots = group_children
+            return tnode
+
+        if not self.config.enable_anchor_matching:
+            # Ablation: keep child sequences verbatim per instance instead of
+            # aligning them via the anchor-extraction LCS.  Each instance's
+            # children go straight into a slot of the SameCPUNode.
             tnode.slots = group_children
             return tnode
 

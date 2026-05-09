@@ -4,6 +4,14 @@ from .event import Event, MergeEvent
 
 from .trace import BaseTrace, Trace, CompressedTrace, TraceLoadResult, TraceLoadStats
 from .compressor import Compressor, TemplateCompressor
+from .config import (
+    CompressorConfig,
+    all_ablation_presets,
+    default_config,
+)
+from .storage_breakdown import StorageBreakdown, measure_storage
+from .synthetic import SyntheticTraceSpec, generate_trace, write_trace
+from .tree_stats import TreeStatistics, measure_tree_statistics
 from .utils import logger
 from .slp import SegmentedLinearPredictorCompressor
 from .analysis import TraceAnalysis
@@ -42,6 +50,16 @@ __all__ = [
 
     "Compressor",
     "TemplateCompressor",
+    "CompressorConfig",
+    "default_config",
+    "all_ablation_presets",
+    "StorageBreakdown",
+    "measure_storage",
+    "TreeStatistics",
+    "measure_tree_statistics",
+    "SyntheticTraceSpec",
+    "generate_trace",
+    "write_trace",
 
     "SegmentedLinearPredictorCompressor",
 
