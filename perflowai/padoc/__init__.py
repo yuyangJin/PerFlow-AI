@@ -13,6 +13,17 @@ from .verify import (
     compare_trace_files,
     compare_trace_files_with_report,
 )
+from . import baselines, bench
+from .baselines import (
+    BaselineCompressor,
+    GzipJsonCompressor,
+    GzipMsgpackCompressor,
+    PADOCCompressor,
+    RawJsonCompressor,
+    RawMsgpackCompressor,
+    ScalaTraceCompressor,
+    TracezipCompressor,
+)
 
 __all__ = [
     "Event",
@@ -39,6 +50,17 @@ __all__ = [
     "compare_trace_directories_with_report",
     "compare_trace_files",
     "compare_trace_files_with_report",
+
+    "baselines",
+    "bench",
+    "BaselineCompressor",
+    "RawJsonCompressor",
+    "RawMsgpackCompressor",
+    "GzipJsonCompressor",
+    "GzipMsgpackCompressor",
+    "TracezipCompressor",
+    "ScalaTraceCompressor",
+    "PADOCCompressor",
 ]
 
 

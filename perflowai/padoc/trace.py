@@ -587,7 +587,16 @@ class CompressedTrace(BaseTrace):
         else:
             with open(path, 'rb') as f:
                 data: Dict[str, Any] = msgpack.load(f, strict_map_key=False)
+        return cls._from_payload(data)
 
+    @classmethod
+    def from_bytes(cls, blob: bytes) -> CompressedTrace:
+        """Reconstruct a CompressedTrace from a msgpack-serialized blob."""
+        data: Dict[str, Any] = msgpack.unpackb(blob, raw=False, strict_map_key=False)
+        return cls._from_payload(data)
+
+    @classmethod
+    def _from_payload(cls, data: Dict[str, Any]) -> CompressedTrace:
         event_templates: List[MergeEvent] = []
         ranks: Dict[str, Dict[str, Dict[str, Dict[str, Union[Node, RefNode]]]]] = {}
         metadata: Dict[str, Any] = {}
