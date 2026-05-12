@@ -1,0 +1,5 @@
+{
+  "datasets": [
+    {"name": "unifolm_full",      "path": "/mnt/treasure/ljx/Trace/unifolm-world-model_json",         "is_directory": true, "gpus": 4}
+  ]
+}

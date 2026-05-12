@@ -1,0 +1,10 @@
+{
+  "datasets": [
+    {
+      "name": "llama_profiler_1024gpu",
+      "path": "/mnt/treasure/ljx/Trace/llama/profiler",
+      "is_directory": true,
+      "gpus": 1024
+    }
+  ]
+}

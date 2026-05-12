@@ -1,0 +1,5 @@
+{
+  "datasets": [
+    {"name": "leworldmodel_full", "path": "/mnt/treasure/ljx/Trace/leworldmodel_json",                "is_directory": true, "gpus": 2}
+  ]
+}

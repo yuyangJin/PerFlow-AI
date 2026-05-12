@@ -1,0 +1,16 @@
+{
+  "datasets": [
+    {
+      "name": "qwen3_subset8",
+      "path": "/home/lvjiaxin/work/AI/PerFlow-AI/scratch/qwen3_subset8",
+      "is_directory": true,
+      "gpus": 8
+    },
+    {
+      "name": "llama_subset8",
+      "path": "/home/lvjiaxin/work/AI/PerFlow-AI/scratch/llama_subset8",
+      "is_directory": true,
+      "gpus": 8
+    }
+  ]
+}

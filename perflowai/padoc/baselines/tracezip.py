@@ -149,8 +149,12 @@ def _alnum_id(index: int) -> str:
 def _hashable(value: Any) -> Any:
     if isinstance(value, list):
         return tuple(_hashable(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_hashable(item) for item in value)
     if isinstance(value, dict):
         return tuple(sorted((k, _hashable(v)) for k, v in value.items()))
+    if isinstance(value, set):
+        return frozenset(_hashable(item) for item in value)
     return value
 
 

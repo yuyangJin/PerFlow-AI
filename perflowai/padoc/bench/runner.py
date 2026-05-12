@@ -60,6 +60,21 @@ def _on_disk_size(path: str) -> int:
     return os.path.getsize(path)
 
 
+def write_compression_blob_to_artifact_dir(
+    artifact_dir: str,
+    compressor_name: str,
+    trace_name: str,
+    blob: bytes,
+) -> str:
+    """Write ``blob`` to ``<artifact_dir>/<compressor>/<trace_name>.bin``."""
+    out_dir = os.path.join(artifact_dir, compressor_name)
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{trace_name}.bin")
+    with open(path, "wb") as f:
+        f.write(blob)
+    return path
+
+
 def _load_trace(dataset: TraceDataset) -> Tuple[Trace, TraceLoadStats]:
     if dataset.is_directory:
         result = Trace.from_dir_with_stats(dataset.path)
@@ -103,6 +118,7 @@ def run_compression_matrix(
     compressor_options: Optional[Dict[str, Dict[str, Any]]] = None,
     verify: bool = True,
     track_memory: bool = True,
+    artifact_dir: Optional[str] = None,
     progress_cb: Optional[Callable[[CompressionRecord], None]] = None,
 ) -> CompressionMatrixResult:
     """Sweep ``(dataset, compressor)`` and collect compression metrics."""
@@ -136,6 +152,15 @@ def run_compression_matrix(
                 artifact.metadata.get("compress_peak_memory_bytes", 0)
             )
             record.metadata = dict(artifact.metadata)
+
+            if artifact_dir:
+                path = write_compression_blob_to_artifact_dir(
+                    artifact_dir,
+                    compressor.name,
+                    dataset.name,
+                    artifact.blob,
+                )
+                record.metadata["artifact_path"] = path
 
             if verify:
                 start = time.perf_counter()

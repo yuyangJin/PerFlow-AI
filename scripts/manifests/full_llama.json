@@ -1,0 +1,5 @@
+{
+  "datasets": [
+    {"name": "llama_full", "path": "/mnt/treasure/ljx/Trace/llama/profiler", "is_directory": true, "gpus": 1024}
+  ]
+}

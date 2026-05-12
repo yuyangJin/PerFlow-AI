@@ -108,6 +108,7 @@ def cmd_compress(args: argparse.Namespace) -> int:
         compressors=compressors,
         verify=not args.no_verify,
         track_memory=not args.no_track_memory,
+        artifact_dir=getattr(args, "artifact_dir", None),
         progress_cb=_progress,
     )
     print()
@@ -220,6 +221,17 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--out-json", default=None, help="Write records as JSON.")
     common.add_argument("--out-csv", default=None, help="Write records as CSV.")
     common.add_argument("--out-md", default=None, help="Write a markdown summary.")
+    common.add_argument(
+        "--artifact-dir",
+        default=None,
+        help="Write each compressed blob to <dir>/<compressor>/<dataset>.bin (compress only).",
+    )
+    common.add_argument(
+        "--padoc-workers",
+        type=int,
+        default=None,
+        help="CLI compatibility; reserved for future parallel trace loading.",
+    )
 
     p_compress = sub.add_parser(
         "compress",

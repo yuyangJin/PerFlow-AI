@@ -1,0 +1,7 @@
+# 复制为 extra_queue.queue 并取消注释需要「见缝插针」跑的任务。
+# 格式：LOGICAL_NAME|整条 shell（通常 bash -lc '...'）
+#
+# LOGICAL_NAME 会传给 run_exp.sh；若 report/exp 里已有同名且 status=running 会跳过。
+#
+# 示例：在 artifact 已齐时只重跑 analyze（勿与正在跑的 D 线重复同一 manifest）
+# G6_reanalyze_subset8|bash -lc 'source /mnt/treasure/ljx/miniconda3/etc/profile.d/conda.sh && conda activate PerFlow-AI && cd /home/lvjiaxin/work/AI/PerFlow-AI && python -u -m perflowai.padoc.bench analyze --manifest scripts/manifests/subset8.json --compressors padoc --tasks operator_hotspot --artifact-dir /mnt/treasure/ljx/padoc_artifacts/v2 --out-md report/exp_results/G6_padoc_hotspot_only.md --out-json report/exp_results/G6_padoc_hotspot_only.json --out-csv report/exp_results/G6_padoc_hotspot_only.csv'

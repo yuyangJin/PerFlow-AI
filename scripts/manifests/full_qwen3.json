@@ -1,0 +1,5 @@
+{
+  "datasets": [
+    {"name": "qwen3_full", "path": "/mnt/treasure/ljx/Trace/qwen3", "is_directory": true, "gpus": 256}
+  ]
+}

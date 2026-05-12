@@ -1,0 +1,22 @@
+{
+  "datasets": [
+    {
+      "name": "llama_profiler_1024gpu",
+      "path": "/mnt/treasure/ljx/Trace/llama/profiler",
+      "is_directory": true,
+      "gpus": 1024,
+      "layers": null,
+      "iterations": null,
+      "description": "Llama 千卡 rank 文件目录（~71GiB 原始 JSON）。全量 baseline 矩阵请仅用 padoc 或另建子集目录。"
+    },
+    {
+      "name": "qwen3_profiler_256gpu",
+      "path": "/mnt/treasure/ljx/Trace/qwen3",
+      "is_directory": true,
+      "gpus": 256,
+      "layers": null,
+      "iterations": null,
+      "description": "Qwen3 256 rank（~7GiB）。可与 llama 并行跑不同进程以占满节点。"
+    }
+  ]
+}
